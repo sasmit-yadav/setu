@@ -220,9 +220,11 @@ no code yet.
 `scripts/verify_data_sources.py` hits every live/build-time data source the
 design spec names (§1.1, §1.2, §1.6) and reports LIVE/FAIL/SKIP. Run it any
 time a source starts misbehaving — it's meant to be the first thing checked,
-not a one-off. Current result: **14/15 live, 0 failed, 1 skipped**
-(OpenCelliD — needs `OPENCELLID_TOKEN`, not yet obtained; Part 30's
-5-feature fallback applies until it clears).
+not a one-off. Result **at the time this check was first run**: 14/15 live,
+0 failed, 1 skipped (OpenCelliD — no token yet). **The token has since been
+obtained and the download fully solved — see §5.5** for the real URL shape
+and the honest zero-India-rows finding. This section's numbers describe
+what the script reported that day, not the OpenCelliD situation today.
 
 Two of those "live" results required fixing the spec's own fetch commands
 first — both are the kind of bug that would otherwise surface as a confusing
@@ -400,7 +402,7 @@ this is expected (down-migrations are destructive by design), not a bug.
 | `02_channel_capability.sql` | `channel_capability_tier`, 4 tiers × 8 channels | 32 |
 | `03_alert_sources.sql` | 6 alert sources (usgs, gdacs, thunderstorm_nowcast, manual, sachet, imd — last two disabled) | 6 |
 | `04_app_config.sql` | every threshold, keyed and noted | 71 |
-| `05_relay_nodes.sql` | 6 demo relay nodes — **currently placeholder ciphertext**, no-ops until `admin_unit` has Wayanad/Palghar rows | 0 (until geometry loads) |
+| `05_relay_nodes.sql` | 6 demo relay nodes — **currently placeholder ciphertext**, real geometry join | 6 (was 0 until §5.4's geometry load) |
 
 `scripts/verify_seeds.py` asserts real counted minimums against the database
 after seeding — **not** the design spec's prose numbers, which don't match
@@ -427,13 +429,15 @@ Windows is its own project. `psycopg` + PostGIS's `ST_GeomFromGeoJSON` does
 everything `ogr2ogr` would have. `scripts/run_geometry_pipeline.py`
 orchestrates the correct order.
 
-**Current state:** `admin_unit` has 6,822 ADM3 rows (nationwide) + 1,480 ADM5
-rows (Wayanad + Palghar). `safe_zone` has 281 real rows from OSM Overpass
-(151 hospitals, 84 schools, 32 community centres, 14 other). `relay_node` has
-6 real rows pointing at the correct real containing units. Population and
-terrain loads are the two still pending as of this writing — mechanically
-identical process, just waiting on larger downloads (population raster
-~489MB, four DEM tiles).
+**Current state, locally (not yet pushed to Neon — see §5.6):** `admin_unit`
+has 6,822 ADM3 rows (nationwide) + 1,480 ADM5 rows (Wayanad + Palghar), all
+8,302 with `population` set. `safe_zone` has 281 real rows from OSM Overpass
+(151 hospitals, 84 schools, 32 community centres, 14 other). `relay_node`
+has 6 real rows pointing at the correct real containing units.
+`unit_features` has terrain ruggedness + mean elevation for 1,375 units —
+everything whose footprint overlaps one of the 4 fetched DEM tiles;
+everything outside Wayanad/Palghar is correctly `NULL`, not guessed or
+zero-filled.
 
 **Two more spec corrections found while loading, beyond §3.6's two:**
 
@@ -469,6 +473,21 @@ identical process, just waiting on larger downloads (population raster
 flakiness with their free public server, not a dead source (confirmed live
 in §3.6's check). `load_safe_zones.py` retries once, then falls through to
 `overpass.kumi.systems` as a mirror. Worked on the first retry both times.
+
+**A bug in this codebase, not the spec, worth recording the same way:**
+`load_terrain.py`'s first version opened all 4 DEM GeoTIFF tiles *inside*
+the per-unit loop (`for tile_path in tiles: with rasterio.open(tile_path)`)
+— up to ~33,000 file opens for 8,302 units, since every unit outside
+Wayanad/Palghar fails against all 4 tiles before being correctly skipped.
+It was still running after several minutes and got killed rather than
+waited out. Fixed by opening each tile once, before the unit loop, and
+reusing the open dataset handles — finished in under 2 minutes afterward.
+The lesson generalizes: any per-unit loop that opens a file/connection
+inside the loop body is a candidate for this exact mistake, and it's worth
+checking for the same pattern before `load_towers.py`'s PostGIS-based
+per-unit queries are run at scale (that one uses SQL `CROSS JOIN`, not
+per-unit file opens, so it isn't exposed to this specific bug — but it's a
+similar shape of risk if this pipeline grows more loaders).
 
 ## 5.5 OpenCelliD — the real download shape, and an honest data-coverage gap
 
@@ -520,6 +539,25 @@ feature-set upgrade, no redesign" promise.
 The downloaded global file (`data/raw/cell_towers_global.csv.gz`, 116MB) is
 gitignored along with the rest of `data/raw/`.
 
+## 5.6 Local vs. Neon — schema matches, data doesn't yet
+
+Local Docker Postgres and Neon are **not in the same state**, and it's worth
+being explicit about exactly where they diverge so nobody assumes one from
+the other:
+
+| | Local (Docker, port 5433) | Neon (`.env.neon`) |
+|---|---|---|
+| Migrations `0001`–`0012` | ✅ applied, round-tripped | ✅ applied, round-tripped (verified separately) |
+| Seed files `01`–`04` (channels, capability, sources, config) | ✅ applied | ✅ applied |
+| `05_relay_nodes.sql` | ✅ 6 real rows (geometry exists) | Ran, but **inserted 0 rows** — Neon's `admin_unit` is still empty, so the seed's own `IF wayanad_unit IS NULL` guard correctly no-op'd |
+| `admin_unit` / `safe_zone` / `unit_features` geometry | ✅ loaded (§5.4) | ❌ empty — not pushed yet |
+
+**Practical consequence:** any query against Neon that assumes real
+geometry (reachability views, vulnerability views, relay coverage) will
+currently return empty results — not because the views are broken, but
+because Neon has no `admin_unit` rows to join against yet. This is tracked
+as an open task in `TASK.md`, not silently left implicit here.
+
 ---
 
 ## 6. Open engineering questions
@@ -559,14 +597,16 @@ pooled + direct URLs once that account exists.
 
 ```
 setu/
+├── CLAUDE.md            binding project rules (no AI attribution in commits, secrets discipline)
+├── TASK.md              status-based task tracker — "what do I do next"
 ├── services/
-│   ├── api/            settings.py (env config, Part 25-style)
+│   ├── api/            settings.py (env config, Part 25-style) — no route code yet
 │   ├── delivery/        channels/  (empty — adapters not written)
 │   ├── ingestion/       adapters/  (empty)
 │   ├── governance/      rules/     (empty)
 │   ├── response/        (empty)
 │   ├── enrollment/      (empty)
-│   ├── ml/              (empty)
+│   ├── ml/              (empty — no hosting decision made yet)
 │   ├── audit/           (empty)
 │   ├── crypto/          (empty — Ed25519 signing lives here, not written)
 │   └── targeting/       (empty)
@@ -575,18 +615,29 @@ setu/
 │   └── citizen/src/     (empty)
 ├── packages/tokens/src/ (empty)
 ├── data/
-│   ├── seeds/           01-05 above
+│   ├── seeds/           01-05 (§5.2) — all applied, real data (§5.4)
 │   ├── snapshots/       (empty — no demo snapshot yet)
-│   └── raw/             (gitignored — build-time downloads land here)
-├── migrations/          alembic; versions/0001-0012 above
+│   └── raw/             gitignored. Currently holds real downloaded data:
+│                        ind_adm3.geojson, ind_adm5.geojson, ind_pop.tif,
+│                        dem/*.tif (4 tiles), cell_towers_global.csv.gz
+├── migrations/          alembic; versions/0001-0012 (§5.1) — applied to
+│                        local Docker AND Neon (§5.6)
 ├── tests/                unit/ property/ contract/ integration/ e2e/ fixtures/  (all empty)
-├── scripts/             gen_secrets.py, wait_for_db.py, guard_local_only.py,
-│                        verify_seeds.py, doctor.py
-├── infra/               docker-compose.yml
-├── docs/                SETU_MASTER_v3.0_MERGED.md (design spec),
+├── scripts/
+│   ├── gen_secrets.py, wait_for_db.py, guard_local_only.py,
+│   │   verify_seeds.py, doctor.py          — bootstrap/ops
+│   ├── verify_data_sources.py              — Gate 1: hits all 15 live sources
+│   ├── fetch_data.sh                       — downloads geometry/population/DEM
+│   └── load_admin_units.py, load_population.py, load_terrain.py,
+│       load_safe_zones.py, load_towers.py,
+│       run_geometry_pipeline.py            — §5.4/§5.5's geometry pipeline
+├── infra/               docker-compose.yml (Postgres on port 5433, not 5432 — §4.1)
+├── docs/                SETU_MASTER_v3.0_MERGED.md (design spec, read-only reference),
 │                        IMPLEMENTATION.md (this file)
-├── run.py               task runner (Makefile replacement)
+├── run.py               task runner (Makefile replacement, §4.2)
 ├── requirements.txt      pinned, 169 packages
 ├── alembic.ini
-└── .env.example
+├── .env.example          committed template
+├── .env                  gitignored — local Docker credentials
+└── .env.neon             gitignored — Neon credentials, kept separate (§5.6)
 ```

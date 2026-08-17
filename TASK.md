@@ -57,17 +57,14 @@ For "how does the system work / why is it built this way," see
 - [ ] Basic `tests/property/` — at minimum, the "no channel reports an
       unsupported tier" and "single officer cannot satisfy quorum" property
       tests, since the schema constraints they check already exist.
-- [ ] **Finish the geometry pipeline** — admin units, safe zones, and relay
-      nodes are DONE and loaded with real data (see `docs/IMPLEMENTATION.md`
-      §5.4). Population (`load_population.py`) and terrain
-      (`load_terrain.py`) are written but not yet run — waiting on the
-      ~489MB population raster + 4 DEM tiles to finish downloading. Run
-      `python scripts/run_geometry_pipeline.py` once `data/raw/ind_pop.tif`
-      is the full size and `data/raw/dem/` has 4 `.tif` files (both steps
-      are independent of everything already loaded).
-- [ ] `services/ml` for tower counts — still no working OpenCelliD bulk
-      download (see 🔴 above); D8f will show `unknown_connectivity_features_pending`
-      for every unit until that's resolved, per Part 30's designed fallback.
+- [ ] **Push loaded geometry to Neon.** `admin_unit` (8,302 rows),
+      `safe_zone` (281 rows), `unit_features` (1,375 rows), and `relay_node`
+      (6 rows) are all loaded and correct **locally only**. Neon's schema is
+      verified (migrations + seed files applied — §5.4 below) but has none
+      of this geometry data yet. Needs a straightforward local→Neon data
+      copy (COPY out / COPY in, or re-run the same loaders against
+      `.env.neon` — the loaders already take `DATABASE_URL_DIRECT` from the
+      environment, so no code change needed, just point them at Neon).
 
 ## 🟢 Done
 
@@ -104,6 +101,15 @@ For "how does the system work / why is it built this way," see
       fallback after the main Overpass instance 504'd once.
 - [x] `05_relay_nodes.sql` re-seeded successfully now that real geometry
       exists — 6 rows, correct real units, still placeholder phone numbers.
+- [x] **Population + terrain zonal stats loaded, locally.**
+      `admin_unit.population` set on all 8,302 units (both ADM3 and ADM5).
+      `unit_features` has terrain ruggedness + mean elevation for 1,375
+      units that fall inside the 4 fetched DEM tiles (everything outside
+      Wayanad/Palghar correctly left NULL, not guessed). Found and killed a
+      real performance bug in `load_terrain.py`'s first version — it
+      reopened all 4 GeoTIFF tiles inside the per-unit loop (~33,000 file
+      opens for 8,302 units) and was taking too long; fixed to open each
+      tile once. Finished in under 2 minutes after the fix.
 - [x] **OpenCelliD bulk download fully solved** — found the real URL shape
       by reading the token-gated `/downloads.php` page's rendered HTML
       (form action, not a documented API). Downloaded the real 116MB
@@ -127,9 +133,10 @@ For "how does the system work / why is it built this way," see
       Neon. Credentials live in `.env.neon` (gitignored, kept separate from
       the local-dev `.env` so daily work still defaults to local Docker).
       Found a real shell bug in the process — see `docs/IMPLEMENTATION.md`
-      §4.5. Geometry (admin_unit, safe_zone, relay_node) is loaded locally
-      only so far, not yet pushed to Neon — that's the next step once the
-      local population/terrain loaders finish.
+      §4.5. All local geometry (admin_unit, safe_zone, unit_features,
+      relay_node) is loaded and correct — confirmed Neon still has 0 rows
+      in all four tables (checked directly, not assumed). Pushing it over
+      is the open 🟡 task above ("Push loaded geometry to Neon").
 
 ## ⚪ Not started, lower priority for now
 
