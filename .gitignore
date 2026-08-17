@@ -1,6 +1,10 @@
 # ── secrets: nothing here may ever reach git (Part 12, Part 25) ──
-.env
-.env.local
+# Broad on purpose: .env, .env.local, .env.neon, .env.anything are ALL
+# ignored by this one pattern, so a new per-environment file never needs a
+# matching new gitignore line remembered later. .env.example is the one
+# deliberate exception, since it's the template teammates copy FROM.
+.env*
+!.env.example
 secrets/
 *.pem
 *-service-account.json

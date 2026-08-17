@@ -16,18 +16,32 @@
 -- geometry load (§1.6.2) runs, so this seed is a no-op (0 rows) until then —
 -- that is correct, not a bug: relay_node.unit_id is NOT NULL and cannot
 -- reference a unit that isn't loaded yet.
+--
+-- SPEC CORRECTION: "Wayanad" is a DISTRICT name, and geoBoundaries has no
+-- admin_unit row literally named that at ADM3/ADM5 (sub-district/village)
+-- resolution — confirmed by loading the real data. "Meppadi" (the specific
+-- town the design doc's demo narrative names) also isn't a distinct
+-- geoBoundaries shape at this resolution; its real coordinates
+-- (~11.65N, 76.13E) fall inside the ADM5 village polygon actually named
+-- "Muttil North" (confirmed via ST_Intersects against a point at those
+-- coordinates). Palghar's demo town, "Talasari", DOES exist under that
+-- exact name at both ADM3 and ADM5 — no substitution needed there.
+--
+-- Using the real containing units below. The pitch language ("Meppadi
+-- Panchayat Office") stays as the human-readable NAME on each relay_node
+-- row; unit_id points at the real polygon that geographically contains it.
 
 DO $$
 DECLARE
   wayanad_unit BIGINT;
   palghar_unit BIGINT;
 BEGIN
-  SELECT id INTO wayanad_unit FROM admin_unit WHERE name ILIKE '%wayanad%' LIMIT 1;
-  SELECT id INTO palghar_unit FROM admin_unit WHERE name ILIKE '%palghar%' LIMIT 1;
+  SELECT id INTO wayanad_unit FROM admin_unit WHERE name = 'Muttil North' AND level = 5 LIMIT 1;
+  SELECT id INTO palghar_unit FROM admin_unit WHERE name = 'Talasari' AND level = 5 LIMIT 1;
 
   IF wayanad_unit IS NULL OR palghar_unit IS NULL THEN
     RAISE NOTICE 'relay_nodes.sql: Wayanad/Palghar admin_unit rows not loaded yet '
-                  '(run scripts/fetch_data.sh + load_admin_units first). Skipping seed.';
+                  '(run scripts/fetch_data.sh + load_admin_units.py first). Skipping seed.';
     RETURN;
   END IF;
 

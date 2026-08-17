@@ -15,11 +15,9 @@ For "how does the system work / why is it built this way," see
 
 | Task | Blocked on | Who |
 |---|---|---|
-| Point the app at a cloud database | Neon account + pooled/direct URLs | — |
 | Real push notifications | Firebase project + service-account JSON + **VAPID key pair** (web push certs — easy to miss) | — |
 | Real SMS / IVR / human-relay calls | Twilio account + verified phone numbers (need 6–8: 2–3 for demo beats, 6 for relay-node seeds) | — |
 | Relay-node seed data | The above, plus real phone numbers to replace `data/seeds/05_relay_nodes.sql`'s placeholder ciphertext | — |
-| Tower-density features (D8f) | Have a token now (in `.env`), but the spec's bulk-download URL shape (`opencellid.org/downloads?token=...&type=mcc&file=...`) returns the normal HTML homepage instead of the CSV.gz — bulk download likely needs a logged-in browser session, not just the token query param. Needs a manual browser download or the real API shape found. Part 30's 5-feature fallback applies until resolved | — |
 | Email escalation channel | Brevo or Resend API key | — |
 | Monitoring alerts | A Discord/Slack incoming webhook URL | — |
 | **Decision:** is B10 (Community Relay Mode) buildable at all? | 20-minute spike, two Android phones + Chrome DevTools — confirm whether Web Bluetooth exposes any GATT peripheral/server role. See `docs/IMPLEMENTATION.md` §6.1 | — |
@@ -59,13 +57,17 @@ For "how does the system work / why is it built this way," see
 - [ ] Basic `tests/property/` — at minimum, the "no channel reports an
       unsupported tier" and "single officer cannot satisfy quorum" property
       tests, since the schema constraints they check already exist.
-- [ ] Load ADM3 admin-unit geometry (§1.6.2 in the design spec) — this is
-      needed before `05_relay_nodes.sql` can seed anything, and before D7f/D8f
-      views return real rows. No account needed. **`scripts/fetch_data.sh` is
-      written and downloads the corrected URLs** (geoBoundaries via the LFS
-      media proxy, DEM tiles via the real `COG_10` key naming — see
-      `docs/IMPLEMENTATION.md` §3.6); still need to write the `ogr2ogr` load
-      step and `scripts/load_population.py`/`load_towers.py`/`load_safe_zones.py`.
+- [ ] **Finish the geometry pipeline** — admin units, safe zones, and relay
+      nodes are DONE and loaded with real data (see `docs/IMPLEMENTATION.md`
+      §5.4). Population (`load_population.py`) and terrain
+      (`load_terrain.py`) are written but not yet run — waiting on the
+      ~489MB population raster + 4 DEM tiles to finish downloading. Run
+      `python scripts/run_geometry_pipeline.py` once `data/raw/ind_pop.tif`
+      is the full size and `data/raw/dem/` has 4 `.tif` files (both steps
+      are independent of everything already loaded).
+- [ ] `services/ml` for tower counts — still no working OpenCelliD bulk
+      download (see 🔴 above); D8f will show `unknown_connectivity_features_pending`
+      for every unit until that's resolved, per Part 30's designed fallback.
 
 ## 🟢 Done
 
@@ -91,6 +93,43 @@ For "how does the system work / why is it built this way," see
       spec's own fetch commands (geoBoundaries Git-LFS pointer issue,
       Copernicus DEM key naming) — see `docs/IMPLEMENTATION.md` §3.6.
       `scripts/fetch_data.sh` written with the corrected URLs.
+- [x] Admin-unit geometry actually loaded (not just verified live):
+      6,822 ADM3 rows nationwide + 1,480 ADM5 rows for Wayanad/Palghar.
+      Found and fixed two more spec bugs in the process (no ADM1/state
+      attribute exists in the ADM5 files at all; "Wayanad"/"Meppadi" aren't
+      distinct shapes at this resolution) — see `docs/IMPLEMENTATION.md`
+      §5.4. Pure-Python loaders, no GDAL dependency.
+- [x] `safe_zone` loaded with 281 real rows from OSM Overpass (both
+      districts) — `scripts/load_safe_zones.py`, with retry + a mirror
+      fallback after the main Overpass instance 504'd once.
+- [x] `05_relay_nodes.sql` re-seeded successfully now that real geometry
+      exists — 6 rows, correct real units, still placeholder phone numbers.
+- [x] **OpenCelliD bulk download fully solved** — found the real URL shape
+      by reading the token-gated `/downloads.php` page's rendered HTML
+      (form action, not a documented API). Downloaded the real 116MB
+      global file. **Honest result: it contains zero rows for India (MCC
+      404/405)** out of 5.35M rows across 199 countries — a genuine,
+      current data-coverage gap, not a bug in the download. `load_towers.py`
+      handles this correctly: `unit_features.tower_count_5km` stays NULL,
+      `v_communication_vulnerability` reports
+      `unknown_connectivity_features_pending` (Part 30's designed
+      fallback, now confirmed to be the actual state rather than a
+      precaution). Script re-runs safely any time — the dump regenerates
+      daily and will pick up India rows the moment any exist, no code
+      change needed. See `docs/IMPLEMENTATION.md` §5.5.
+- [x] **Neon cloud database set up and verified.** Both connection URLs
+      confirmed working (pooled + direct); all 4 extensions present
+      (`postgis`, `pgcrypto`, `pg_trgm`, `vector` — note: pgvector's real
+      extension name is `vector`, not `pgvector`, which tripped up the
+      first attempt). Full migration round-trip (`upgrade head → downgrade
+      0006 → upgrade head`) run against Neon directly — clean, same as
+      local. All 5 seed files applied; `verify_seeds.py` passes against
+      Neon. Credentials live in `.env.neon` (gitignored, kept separate from
+      the local-dev `.env` so daily work still defaults to local Docker).
+      Found a real shell bug in the process — see `docs/IMPLEMENTATION.md`
+      §4.5. Geometry (admin_unit, safe_zone, relay_node) is loaded locally
+      only so far, not yet pushed to Neon — that's the next step once the
+      local population/terrain loaders finish.
 
 ## ⚪ Not started, lower priority for now
 

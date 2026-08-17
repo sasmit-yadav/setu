@@ -326,6 +326,40 @@ punctuation) must call `stream.reconfigure(encoding="utf-8")` on
 `sys.stdout`/`sys.stderr` — the default Windows console codepage (cp1252)
 raises `UnicodeEncodeError` on `─`, `→`, etc. otherwise.
 
+### 4.5 Never `source` a `.env` file with unquoted values containing `&`
+
+Neon's connection strings include `?sslmode=require&channel_binding=require`.
+Doing `set -a && source .env.neon && set +a` in bash — the exact pattern used
+throughout this session for one-off local Postgres testing — **silently
+produces an empty variable** for any value containing a bare `&`:
+
+```bash
+X=postgresql://user:pass@host/db?sslmode=require&channel_binding=require
+echo "[$X]"   # → []
+```
+
+Bash treats the unquoted `&` as the background-job operator even with no
+surrounding whitespace: `X=...&channel_binding=require` backgrounds the
+`X=...` assignment (which sets `X` only inside a throwaway subshell, never
+the parent shell) and then evaluates `channel_binding=require` as a second,
+unrelated, no-op assignment. Nothing errors — `alembic upgrade head` ran
+against `migrations/env.py`'s hardcoded local-Postgres fallback instead of
+Neon, and appeared to succeed (because the local DB genuinely was already at
+head), which is a worse failure mode than a crash would have been.
+
+**Fix, applied everywhere:** quote every value in every `.env*` file —
+`DATABASE_URL_DIRECT="postgresql://...&channel_binding=require"` — so
+`source`/`export` handle them correctly regardless of what characters the
+value contains. Local `.env`'s bare `postgresql://setu:setu@localhost:5433/setu`
+URLs never had a `&` in them, which is exactly why this stayed hidden until
+the first Neon connection string was sourced.
+
+**`run.py`'s `load_env()` function was never affected** — it parses `.env`
+itself in Python (`line.partition("=")`, no shell involved), which is
+correct precisely because it never asks a shell to interpret the value. The
+bug only bites ad-hoc `source` invocations from a terminal, which is exactly
+how the Neon verification was first attempted.
+
 ---
 
 ## 5. Database schema — as actually built
@@ -376,13 +410,115 @@ what the spec's own SQL produces once you count every `INSERT` tuple.
 
 - `05_relay_nodes.sql` uses dummy `pgp_sym_encrypt('+91PLACEHOLDER...', 'CHANGE-ME')`
   values. Must be redone with real Twilio-verified team phone numbers before
-  any human-relay (B9) work is tested, and it structurally cannot run until
-  `admin_unit` contains the Wayanad/Palghar rows (which needs the ADM3/ADM5
-  geometry load — not done yet).
+  any human-relay (B9) work is tested. **No longer blocked on geometry** —
+  see §5.4, the geometry load is done and this seed now inserts real rows.
 - `quality_gate.required_lang_for_severe`/`_extreme` are keyed per state
   (`.KL` → `ml`, `.MH` → `mr`) rather than one global floor, because a single
   `'ml'` requirement would incorrectly gate Palghar (Maharashtra, Marathi)
   alerts.
+
+## 5.4 Geometry load — done, with two more spec corrections found
+
+`scripts/fetch_data.sh` (§3.6's corrections) downloads the raw files;
+`scripts/load_admin_units.py`, `load_population.py`, `load_terrain.py`,
+`load_safe_zones.py` load them. All pure Python — no GDAL/`ogr2ogr`
+dependency, since GDAL is not installed on this machine and installing it on
+Windows is its own project. `psycopg` + PostGIS's `ST_GeomFromGeoJSON` does
+everything `ogr2ogr` would have. `scripts/run_geometry_pipeline.py`
+orchestrates the correct order.
+
+**Current state:** `admin_unit` has 6,822 ADM3 rows (nationwide) + 1,480 ADM5
+rows (Wayanad + Palghar). `safe_zone` has 281 real rows from OSM Overpass
+(151 hospitals, 84 schools, 32 community centres, 14 other). `relay_node` has
+6 real rows pointing at the correct real containing units. Population and
+terrain loads are the two still pending as of this writing — mechanically
+identical process, just waiting on larger downloads (population raster
+~489MB, four DEM tiles).
+
+**Two more spec corrections found while loading, beyond §3.6's two:**
+
+1. **geoBoundaries ADM5 files carry no state/ADM1 attribute at all.** The
+   design spec's filter (§1.6.2: `-where "shapeGroup='IND' AND ADM1_NAME
+   IN ('Kerala','Maharashtra')"`) assumes a column that does not exist —
+   confirmed by inspecting an actual feature's properties, which are only
+   `shapeName`, `shapeISO` (empty), `shapeID`, `shapeGroup` (always `"IND"`
+   for the national extract), `shapeType`. There is no state name anywhere
+   in the file. **Fixed:** filter by geometry bounding box instead
+   (`load_admin_units.py --bbox south,west,north,east`, repeatable), scoped
+   to the two case-study *districts* rather than the two full *states* —
+   which is both a tighter scope (matches Trap 4's actual goal better) and
+   consistent with how `safe_zone`/`relay_node` are already bbox-scoped to
+   the same two districts.
+
+2. **"Wayanad" and "Meppadi" are not distinct shapes at ADM3/ADM5
+   resolution.** "Wayanad" is the district name; the design doc's demo
+   narrative names "Meppadi" specifically for the relay-node seed, but
+   neither exists as a `geoBoundaries` `shapeName` at sub-district/village
+   granularity. Confirmed by `ST_Intersects` against Meppadi's real
+   coordinates (~11.65°N, 76.13°E): the containing ADM3 unit is
+   **"Vythiri"**, the containing ADM5 unit is **"Muttil North"**. Palghar's
+   demo town, **"Talasari,"** *does* exist under that exact name at both
+   levels — no substitution needed there. `05_relay_nodes.sql` now looks up
+   `Muttil North` (level 5) for the Wayanad-side nodes and `Talasari`
+   (level 5) for the Palghar-side nodes; the human-readable `name` column on
+   each row still says "Meppadi ..." to match the pitch narrative — only the
+   geometry join target changed.
+
+**One more operational finding:** the public Overpass API's main instance
+(`overpass-api.de`) returned a 504 on the first real query — a known
+flakiness with their free public server, not a dead source (confirmed live
+in §3.6's check). `load_safe_zones.py` retries once, then falls through to
+`overpass.kumi.systems` as a mirror. Worked on the first retry both times.
+
+## 5.5 OpenCelliD — the real download shape, and an honest data-coverage gap
+
+§3.6 flagged this as a `SKIP` (no token). With a token, two more things
+needed solving, one a URL-shape bug and one a genuine finding about the
+data itself.
+
+**The real download URL required reading the page's rendered HTML, not
+guessing at REST conventions.** `opencellid.org/downloads` shows a form
+(`action="/downloads.php" method="get"`, single field `token`) — submitting
+it reveals per-user download links that were never visible in the page
+served without a valid token. Those links are:
+
+```
+https://opencellid.org/ocid/downloads?token=...&type=full&file=cell_towers.csv.gz
+https://opencellid.org/ocid/downloads?token=...&type=diff&file=OCID-diff-cell-export-{date}.csv.gz
+```
+
+**Spec correction:** §1.6.2's fetch command
+(`type=mcc&file=404.csv.gz`, `type=mcc&file=405.csv.gz`) assumes a
+per-country/per-MCC download product that does not exist in the current
+API — `type=mcc` doesn't validate; only `full` (one global file) and `diff`
+(daily deltas) are real options. There is no server-side country filter
+available at all now; filtering has to happen client-side after downloading
+the global file. Confirmed: `type=full&file=cell_towers.csv.gz` returns a
+real 116MB gzip (`Content-Type: application/gzip`, `Content-Length:
+116290903`).
+
+**The honest finding, not a bug:** the global file contains 5,349,901 rows
+across 199 distinct MCCs. **Not one of them is MCC 404 or 405 (India).**
+OpenCelliD's crowdsourced coverage of India is currently empty in this
+export — confirmed by checking every unique MCC value present, not just
+filtering and getting zero (which could have been a formatting mismatch;
+it wasn't).
+
+`scripts/load_towers.py` handles this as a first-class outcome, not a
+failure: if the India row count is zero, it prints exactly that and leaves
+`unit_features.tower_count_5km`/`nearest_tower_km` `NULL` for every unit —
+which is precisely what makes `v_communication_vulnerability` correctly
+report `unknown_connectivity_features_pending` rather than `standard`. Part
+30's fallback was written for "the token approval hasn't cleared yet"; it
+turns out to be the correct behavior for a different, more permanent reason
+too — India tower data isn't there to have. The script is safe to re-run at
+any time (rate limit: 2 downloads/day per token) — the dump regenerates
+daily, so it will start populating real numbers automatically the day any
+India coverage appears, with no code change, matching Part 30's own "strict
+feature-set upgrade, no redesign" promise.
+
+The downloaded global file (`data/raw/cell_towers_global.csv.gz`, 116MB) is
+gitignored along with the rest of `data/raw/`.
 
 ---
 
