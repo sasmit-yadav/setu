@@ -215,6 +215,73 @@ no code yet.
 
 ---
 
+## 3.6 Live external data sources — verified, not assumed
+
+`scripts/verify_data_sources.py` hits every live/build-time data source the
+design spec names (§1.1, §1.2, §1.6) and reports LIVE/FAIL/SKIP. Run it any
+time a source starts misbehaving — it's meant to be the first thing checked,
+not a one-off. Current result: **14/15 live, 0 failed, 1 skipped**
+(OpenCelliD — needs `OPENCELLID_TOKEN`, not yet obtained; Part 30's
+5-feature fallback applies until it clears).
+
+Two of those "live" results required fixing the spec's own fetch commands
+first — both are the kind of bug that would otherwise surface as a confusing
+partial failure on the day someone actually runs the geometry load:
+
+### geoBoundaries admin boundaries are Git-LFS-tracked
+
+The spec's fetch command (§1.6.2) is
+`curl -fSL -o ... raw.githubusercontent.com/wmgeolab/geoBoundaries/.../*.geojson`.
+That host returns the **LFS pointer text** for an LFS-tracked file — a ~130
+byte text blob (`version https://git-lfs.github.com/spec/v1\noid sha256:...\nsize ...`),
+not the actual geometry. `ogr2ogr` handed that file would fail outright, or
+worse, silently accept something malformed.
+
+**Fix:** use `media.githubusercontent.com/media/<same path>` instead —
+GitHub's LFS media proxy. Confirmed: ADM3 → 40,040,002 bytes (~38MB, matches
+the spec's own size claim); ADM5 → 467,134,382 bytes (~445MB, also matches).
+`scripts/fetch_data.sh` uses the correct host and additionally refuses to
+proceed if either downloaded file is under 1MB — a cheap, permanent guard
+against this exact failure mode recurring silently.
+
+### Copernicus DEM tile keys are named `COG_10`, not `COG_30`
+
+The spec's DEM fetch script and Part 29's four-tile check both build the S3
+key as `Copernicus_DSM_COG_30_{tile}_DEM`. The bucket is genuinely named
+`copernicus-dem-30m`, but **every key inside it is actually named
+`Copernicus_DSM_COG_10_{tile}_DEM`** — confirmed by listing the bucket
+directly for the four Wayanad/Palghar tiles
+(`N11_00_E076_00`, `N19_00_E072_00`, `N19_00_E073_00`, `N11_00_E077_00`).
+Using the spec's literal key 404s on all four tiles and would wrongly
+trigger Part 29's "MISSING: fall back to SRTM" path for a source that is
+actually fully present. `scripts/fetch_data.sh` uses `COG_10`.
+
+### Smaller findings, not bugs, worth knowing
+
+- **GDACS**: `/gdacsapi/api/events/geteventlist/MAP` requires an `eventtype`
+  param (400 without one) — the spec's bare URL example was incomplete.
+  `/gdacsapi/api/events/geteventlist/SEARCH` needs no params and returns
+  live global events directly; use that for the ingestion adapter instead.
+- **WorldPop**: the spec's exact filename
+  (`Global_2000_2020_Constrained/2020/BSGM/IND/ind_ppp_2020_UNadj_constrained.tif`)
+  is correct as written — confirmed a real 489MB TIFF. (The WorldPop REST
+  *listing* API defaults to a different, unconstrained dataset series if you
+  query it generically — don't use that path to "verify" this file; it
+  reports success without ever touching the real one.)
+- **IMD**: `/public/` alone is the API-management portal's HTML landing
+  page (200), not a data endpoint — a 200 there does *not* mean the API is
+  open. No documented endpoint path could be found to actually test Trap 2's
+  401 claim without registering. Still correctly not on the critical path.
+- **Google Open Buildings**: no stable discovery API exists; per-district S2
+  cell IDs genuinely have to be resolved at build time, exactly as the spec
+  says. Not further verifiable generically.
+- **Protomaps basemap**: `build.protomaps.com` root 404s (expected — it
+  serves date-stamped build files, not a directory index). Host is live;
+  the actual current build filename is a `[RECONFIRM]`-at-load-time item,
+  not something a static check can resolve.
+
+---
+
 ## 4. Environment quirks found while building — read before debugging
 
 ### 4.1 Local Postgres runs on port 5433

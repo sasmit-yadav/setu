@@ -19,7 +19,7 @@ For "how does the system work / why is it built this way," see
 | Real push notifications | Firebase project + service-account JSON + **VAPID key pair** (web push certs — easy to miss) | — |
 | Real SMS / IVR / human-relay calls | Twilio account + verified phone numbers (need 6–8: 2–3 for demo beats, 6 for relay-node seeds) | — |
 | Relay-node seed data | The above, plus real phone numbers to replace `data/seeds/05_relay_nodes.sql`'s placeholder ciphertext | — |
-| Tower-density features (D8f) | OpenCelliD token (fires the request, then wait — has a queue) | — |
+| Tower-density features (D8f) | OpenCelliD token (fires the request, then wait — has a queue). Everything else is verified live — see `scripts/verify_data_sources.py`, 14/15 sources confirmed | — |
 | Email escalation channel | Brevo or Resend API key | — |
 | Monitoring alerts | A Discord/Slack incoming webhook URL | — |
 | **Decision:** is B10 (Community Relay Mode) buildable at all? | 20-minute spike, two Android phones + Chrome DevTools — confirm whether Web Bluetooth exposes any GATT peripheral/server role. See `docs/IMPLEMENTATION.md` §6.1 | — |
@@ -61,8 +61,11 @@ For "how does the system work / why is it built this way," see
       tests, since the schema constraints they check already exist.
 - [ ] Load ADM3 admin-unit geometry (§1.6.2 in the design spec) — this is
       needed before `05_relay_nodes.sql` can seed anything, and before D7f/D8f
-      views return real rows. No account needed, just the geoBoundaries
-      download + `ogr2ogr` load.
+      views return real rows. No account needed. **`scripts/fetch_data.sh` is
+      written and downloads the corrected URLs** (geoBoundaries via the LFS
+      media proxy, DEM tiles via the real `COG_10` key naming — see
+      `docs/IMPLEMENTATION.md` §3.6); still need to write the `ogr2ogr` load
+      step and `scripts/load_population.py`/`load_towers.py`/`load_safe_zones.py`.
 
 ## 🟢 Done
 
@@ -82,6 +85,12 @@ For "how does the system work / why is it built this way," see
       `ALERT_SIGNING_SEED_B64` + public key, JWT/HMAC secrets) — in `.env`,
       not committed
 - [x] `docs/IMPLEMENTATION.md` and this file created
+- [x] Every live/build-time data source in the design spec verified —
+      `scripts/verify_data_sources.py`, 14/15 live, 1 correctly skipped
+      (OpenCelliD, no token yet). Found and fixed two real bugs in the
+      spec's own fetch commands (geoBoundaries Git-LFS pointer issue,
+      Copernicus DEM key naming) — see `docs/IMPLEMENTATION.md` §3.6.
+      `scripts/fetch_data.sh` written with the corrected URLs.
 
 ## ⚪ Not started, lower priority for now
 
