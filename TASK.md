@@ -19,7 +19,7 @@ For "how does the system work / why is it built this way," see
 | Real push notifications | Firebase project + service-account JSON + **VAPID key pair** (web push certs — easy to miss) | — |
 | Real SMS / IVR / human-relay calls | Twilio account + verified phone numbers (need 6–8: 2–3 for demo beats, 6 for relay-node seeds) | — |
 | Relay-node seed data | The above, plus real phone numbers to replace `data/seeds/05_relay_nodes.sql`'s placeholder ciphertext | — |
-| Tower-density features (D8f) | OpenCelliD token (fires the request, then wait — has a queue). Everything else is verified live — see `scripts/verify_data_sources.py`, 14/15 sources confirmed | — |
+| Tower-density features (D8f) | Have a token now (in `.env`), but the spec's bulk-download URL shape (`opencellid.org/downloads?token=...&type=mcc&file=...`) returns the normal HTML homepage instead of the CSV.gz — bulk download likely needs a logged-in browser session, not just the token query param. Needs a manual browser download or the real API shape found. Part 30's 5-feature fallback applies until resolved | — |
 | Email escalation channel | Brevo or Resend API key | — |
 | Monitoring alerts | A Discord/Slack incoming webhook URL | — |
 | **Decision:** is B10 (Community Relay Mode) buildable at all? | 20-minute spike, two Android phones + Chrome DevTools — confirm whether Web Bluetooth exposes any GATT peripheral/server role. See `docs/IMPLEMENTATION.md` §6.1 | — |
