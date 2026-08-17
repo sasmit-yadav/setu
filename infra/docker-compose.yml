@@ -1,0 +1,58 @@
+# Local development ONLY. The demo environment is Neon + Upstash (Part 15).
+#
+# Local Redis is unlimited — which is why §1.4 makes "dev uses local Redis"
+# a RULE rather than a preference: one afternoon of local iteration against
+# Upstash can burn a whole day's 16,600-command budget.
+#
+# The image is postgis/postgis, NOT plain postgres. PostGIS, pgcrypto and
+# pg_trgm must all exist before migration 0001 runs; a plain postgres image
+# fails on the first CREATE EXTENSION postgis in a way that reads like a
+# permissions problem and costs an hour.
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: setu-db
+    environment:
+      POSTGRES_USER: setu
+      POSTGRES_PASSWORD: setu
+      POSTGRES_DB: setu
+    # Host port 5433, not 5432 — this machine already has a native Windows
+    # postgres.exe service bound to 5432 (found via Get-NetTCPConnection on
+    # Day 6). Connecting to "localhost:5432" was silently hitting THAT
+    # service instead of this container, with a different password, and
+    # produced no log line on either side to explain why. Moving the
+    # container's published port sidesteps it without touching a service
+    # that might belong to something else on this laptop.
+    ports: ["5433:5432"]
+    volumes:
+      - setu_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U setu -d setu"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: setu-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes:
+      - setu_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  mailhog:
+    # Captures Brevo-bound email locally so the 300/day quota is never spent in dev.
+    # UI on http://localhost:8025
+    image: mailhog/mailhog
+    container_name: setu-mailhog
+    ports: ["1025:1025", "8025:8025"]
+
+volumes:
+  setu_pg:
+  setu_redis:

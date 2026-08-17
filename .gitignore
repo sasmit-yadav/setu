@@ -1,0 +1,34 @@
+# ── secrets: nothing here may ever reach git (Part 12, Part 25) ──
+.env
+.env.local
+secrets/
+*.pem
+*-service-account.json
+
+# ── python ──
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ── node ──
+node_modules/
+dist/
+.vite/
+
+# ── data: downloaded at build time, never committed (§1.6.2) ──
+data/raw/
+!data/raw/.gitkeep
+
+# ── committed on purpose: data/seeds/ and data/snapshots/ (Rule 3, §15) ──
+
+# ── os / editor ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
