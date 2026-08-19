@@ -5,7 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
 
 from services.api import config_repo
+from services.api.auth import Principal
 from services.api.deps import get_conn, get_idempotency_key, get_redis
+from services.api.rbac import (
+    assert_alert_in_scope,
+    require_officer,
+    require_operational_read,
+)
 from services.api.schemas import (
     AlertDetailOut,
     AlertSummaryOut,
@@ -49,6 +55,7 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 async def create_alert(
     body: CreateAlertRequest,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> CreateAlertResponse:
     try:
         result = await create_draft_alert(
@@ -77,6 +84,7 @@ async def list_alerts(
     limit: int | None = None,
     offset: int = 0,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> list[AlertSummaryOut]:
     effective_limit = limit if limit is not None else await config_repo.get_int(conn, "api.list_default_limit")
     rows = await conn.fetch(
@@ -113,6 +121,7 @@ async def list_alerts(
 async def get_alert(
     alert_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> AlertDetailOut:
     row = await conn.fetchrow(
         """
@@ -156,6 +165,7 @@ async def get_alert(
 async def preview_alert(
     alert_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> PreviewResponse:
     try:
         payload = await preview_exposure(conn, alert_id)
@@ -168,6 +178,7 @@ async def preview_alert(
 async def validate_alert(
     alert_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> ValidateResponse:
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
@@ -186,12 +197,22 @@ async def approve_alert(
     alert_id: int,
     body: ApproveRequest,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> ApproveResponse:
+    """Record ONE approval, from the authenticated caller.
+
+    The approver is taken from the verified token, NEVER from the request
+    body. It used to be `body.approver_id`, which made F3's Four-Eyes quorum
+    bypassable by typing a different integer: the
+    UNIQUE (alert_id, approver_id) constraint is a real guarantee, but it
+    guarantees nothing about *identity* if the caller declares who they are.
+    """
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
         raise HTTPException(status_code=404, detail="alert_not_found")
+    await assert_alert_in_scope(conn, principal, alert_id)
     severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
-    await approve(conn, alert_id, body.approver_id, reason=body.reason)
+    await approve(conn, alert_id, principal.user_id, reason=body.reason)
     have = await approval_count(conn, alert_id)
     need = await required_count(conn, severity)
     return ApproveResponse(alert_id=alert_id, have=have, need=need)
@@ -203,10 +224,12 @@ async def dispatch(
     conn: asyncpg.Connection = Depends(get_conn),
     redis: Redis = Depends(get_redis),
     idempotency_key: str | None = Depends(get_idempotency_key),
+    principal: Principal = Depends(require_officer),
 ) -> DispatchResponse:
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
         raise HTTPException(status_code=404, detail="alert_not_found")
+    await assert_alert_in_scope(conn, principal, alert_id)
     if idempotency_key:
         cached = await redis.get(f"setu:idempotency:dispatch:{idempotency_key}")
         if cached:
@@ -214,7 +237,10 @@ async def dispatch(
             payload = json.loads(cached)
             return DispatchResponse(**payload)
     try:
-        result = await dispatch_alert(conn, redis, alert_id, actor="api")
+        # actor is the authenticated officer's email, not the literal "api".
+        # The audit ledger's whole purpose is answering "who ordered this
+        # dispatch"; "api" is not an answer.
+        result = await dispatch_alert(conn, redis, alert_id, actor=principal.email)
     except QualityGateBlocked as exc:
         raise HTTPException(
             status_code=422,
@@ -263,6 +289,7 @@ async def new_version(
     alert_id: int,
     body: NewVersionRequest,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> NewVersionResponse:
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
@@ -301,6 +328,7 @@ async def new_version(
 async def alert_assurance_view(
     alert_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> AssuranceOut:
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
@@ -315,6 +343,7 @@ async def alert_deliveries(
     limit: int | None = None,
     offset: int = 0,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> list[DeliveryRowOut]:
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:

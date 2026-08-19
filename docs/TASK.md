@@ -9,7 +9,10 @@ For "how does the system work / why is it built this way," see
 **Legend:** 🔴 Blocked (needs an external account/credential/decision) ·
 🟡 Ready to build (nothing blocking) · 🟢 Done · ⚪ Not started, not urgent
 
-**Last verification:** 37/37 pytest green · all four guards clean
+**Last verification:** 65/65 pytest green (incl. 29 RBAC matrix tests) ·
+**authentication + RBAC live** — `POST /alerts/{id}/dispatch` went from
+*200 with no token* to 401/403, and `approver_id` can no longer be supplied
+by the caller · all four guards clean
 (`check_no_hardcoding`, `check_channel_capability`, `check_env_example`,
 `check_pwa_config`) · ruff clean on `services/` + `scripts/` + `tests/` ·
 Docker stack healthy · **live USGS ingestion proven end-to-end** (3 real
@@ -42,7 +45,19 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 - [ ] **Officer console** — `web/console` (compose → validate → approve → dispatch); API surface is ready
 - [ ] **Neon enrollment import** — `consented_recipients: 0` on Neon; run `python run.py import-enrollment` when CSV is ready
 - [ ] **Gate 3 offline rehearsal** — snapshot/demo-fixture tooling for disconnected demo
-- [ ] **E1 RBAC** — `app_user` roles on mutating routes
+- [ ] **Finish RBAC across remaining routers** — auth + RBAC now exist
+      (`services/api/{auth,rbac}.py`, migration `0013`, 29 tests) and are
+      applied to `alerts.py`. Still to protect: `assistance`, `incidents`,
+      `units`, `enrollment`, `response`, `ack`, `receipts`, `citizen`.
+      The three §12.2 privacy rows live there and are the highest-value
+      remaining work: **auditor = aggregate only** (never point geometry),
+      **relay_node = never** (count and area, never a household list),
+      **citizen = own data only**.
+- [ ] **Assign real `unit_scope_id` to officer accounts** — the scoping
+      helpers exist and are wired in, but seeded accounts are unscoped
+      (`NULL`) because `admin_unit` ids are not stable across a geometry
+      reload. Needs a lookup step at provisioning time. See
+      `docs/IMPLEMENTATION.md` §8.0.
 - [ ] **`services/ml`** — reach-risk / translation service (hosting TBD)
 
 ## 🟢 Done

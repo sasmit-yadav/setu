@@ -24,22 +24,22 @@ INSERT INTO app_user (email, role, unit_scope_id, active) VALUES
   -- composes and approves; Officer B provides the independent second approval
   -- from a different login. One officer clicking twice yields ONE row
   -- (UNIQUE (alert_id, approver_id)) and never satisfies a quorum of 2.
-  ('officer.a@setu.local',     'officer',     NULL, true),
-  ('officer.b@setu.local',     'officer',     NULL, true),
+  ('officer.a@setu.example',     'officer',     NULL, true),
+  ('officer.b@setu.example',     'officer',     NULL, true),
 
   -- State admin: the only role permitted to close an incident (Part 26).
-  ('state.admin@setu.local',   'state_admin', NULL, true),
+  ('state.admin@setu.example',   'state_admin', NULL, true),
 
   -- Auditor: sees proof the system behaved correctly, never the PII it
   -- protects. Aggregate-only on /assistance, no contact reveal (§12.2).
-  ('auditor@setu.local',       'auditor',     NULL, true),
+  ('auditor@setu.example',       'auditor',     NULL, true),
 
   -- Relay node operator: gets a COUNT AND AN AREA, never a household list.
   -- The row Part 26 says most implementations get wrong (§12.2).
-  ('relay.node@setu.local',    'relay_node',  NULL, true),
+  ('relay.node@setu.example',    'relay_node',  NULL, true),
 
   -- Citizen: the PWA's own role, lowest privilege.
-  ('citizen@setu.local',       'citizen',     NULL, true)
+  ('citizen@setu.example',       'citizen',     NULL, true)
 
 -- Idempotent, for the same reason 03_alert_sources.sql is: a seed file is the
 -- source of truth (Rule 3) and re-running it must CORRECT a drifted row

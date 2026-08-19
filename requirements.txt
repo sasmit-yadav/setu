@@ -32,6 +32,7 @@ defusedxml==0.7.1
 Deprecated==1.3.1
 detect-secrets==1.5.0
 distlib==0.4.3
+email-validator==2.3.0
 ecdsa==0.19.2
 fastapi==0.141.1
 filelock==3.32.3
@@ -88,7 +89,9 @@ numpy==2.5.2
 packageurl-python==0.17.6
 packaging==26.3
 pandas==3.0.5
-passlib==1.7.4
+# passlib removed: 1.7.4 (last release 2020) is incompatible with bcrypt 5.x.
+# services/api/auth.py uses the bcrypt package directly — see the note there
+# about the 72-byte limit, which the wrapper was not handling for us anyway.
 pathspec==1.1.1
 pip-api==0.0.34
 pip-requirements-parser==32.0.1

@@ -52,8 +52,9 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('pwa.ack_retention_minutes',       '1440',  'minutes',    'BackgroundSync gives up after this'),
   ('api.rate_limit_per_ip',           '60',    'req/min',    'slowapi default'),
   ('api.rate_limit_dispatch',         '5',     'req/min',    'Tighter on /dispatch'),
-  ('jwt.access_ttl_minutes',          '15',    'minutes',    ''),
-  ('jwt.refresh_ttl_days',            '7',     'days',       '');
+  ('jwt.access_ttl_minutes',          '15',    'minutes',    'Access tokens are stateless and therefore CANNOT be revoked — this ttl is the revocation window. Kept short deliberately; the refresh flow makes it invisible to users.'),
+  ('jwt.refresh_ttl_days',            '7',     'days',       'Refresh sessions are stored server-side and rotated on every use, so they CAN be revoked. Presenting an already-used token revokes the whole family (theft detection).'),
+  ('auth.bcrypt_rounds',              '12',    'rounds',     'bcrypt work factor for NEW password hashes. 12 is the common present-day floor; raise it as hardware improves. Stored hashes carry their own cost, so raising this does not invalidate existing passwords.');
 
 -- ═══ F3 Dual Authorization (Rule 12) ═══
 INSERT INTO app_config (key, value, unit, note) VALUES

@@ -1,7 +1,9 @@
 [lint.per-file-ignores]
 # FastAPI's Depends(...) in a signature default is the framework's documented
-# dependency-injection idiom, not a mutable-default bug.
+# dependency-injection idiom, not a mutable-default bug. rbac.py is dependency
+# code by definition, so it needs the same exemption as the routers.
 "services/api/routers/*.py" = ["B008"]
+"services/api/rbac.py" = ["B008"]
 
 # scripts/ are operational tools, not library code, and a few rules fight that:
 #   PLW1510  subprocess.run without check= — these scripts inspect returncode

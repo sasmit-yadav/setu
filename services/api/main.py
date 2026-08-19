@@ -7,6 +7,7 @@ from services.api.routers import (
     ack,
     alerts,
     assistance,
+    auth,
     citizen,
     enrollment,
     health,
@@ -31,6 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(public.router)
 app.include_router(citizen.router)
 app.include_router(alerts.router)

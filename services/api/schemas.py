@@ -18,7 +18,18 @@ class ValidateResponse(BaseModel):
 
 
 class ApproveRequest(BaseModel):
-    approver_id: int
+    """The approver is NOT a field here, deliberately.
+
+    This model used to carry `approver_id: int`, which meant any caller could
+    approve as any officer and F3's Four-Eyes quorum was bypassable by typing
+    a different integer. Identity now comes from the authenticated principal
+    (services/api/rbac.current_principal). The field is intentionally absent
+    rather than optional-and-ignored, so a client that still sends it gets a
+    422 instead of silently having it discarded.
+    """
+
+    model_config = {"extra": "forbid"}
+
     reason: str | None = None
 
 

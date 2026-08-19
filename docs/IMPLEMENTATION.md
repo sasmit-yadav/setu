@@ -791,6 +791,102 @@ API) or `scripts/db_config_sync.py` (sync loaders).
 `pwa.network_timeout_seconds` etc. App UI waits for config before enabling
 free-text `maxLength`.
 
+## 8.0 Authentication and RBAC (Part 26)
+
+Until migration `0013`, **every one of the API's 29 endpoints was
+unauthenticated** — including `POST /alerts/{id}/dispatch`, which fans an
+alert out to every consented recipient. On a system that can order an
+evacuation, that is the single worst defect available, and it also made every
+governance guarantee in the platform unverifiable:
+
+- `POST /alerts/{id}/approve` took **`approver_id` from the request body**.
+  `UNIQUE (alert_id, approver_id)` is a real database guarantee, but it
+  guarantees nothing about *identity* if the caller declares who they are —
+  F3's Four-Eyes quorum was bypassable by typing a different integer.
+- The audit ledger's `actor` was a caller-supplied string (`"api"` for every
+  dispatch). "Who ordered this evacuation" had no answer.
+- §12.2's privacy design — relay_node never sees assistance cases, auditor
+  gets aggregate-only — has no runtime meaning without a role on the request.
+
+### What was built
+
+| Piece | Decision, and why |
+|---|---|
+| **Access token** | Stateless JWT, short TTL from `jwt.access_ttl_minutes`. Stateless means *un-revocable*, so the TTL **is** the revocation window — hence short. |
+| **Refresh token** | **Opaque random string, stored server-side as a SHA-256 hash, rotated on every use.** Not a JWT: a system that can order an evacuation must be able to cut off a stolen credential, and a stateless refresh token cannot be revoked. |
+| **Theft detection** | Presenting an already-consumed refresh token revokes the **entire family**, not just that token. Replay and race are indistinguishable from the server's side, so both are treated as compromise. Verified live: after a replay, the legitimately-rotated token is also dead. |
+| **Password storage** | bcrypt, cost from `auth.bcrypt_rounds`. |
+| **No self-registration** | Officer/admin/auditor/relay accounts are provisioned by an administrator. An open sign-up endpoint on this system would be indefensible. Citizen enrollment (E4) creates `recipient` rows, not logins. |
+
+### Three details that are easy to get wrong
+
+**passlib was dropped, not pinned around.** passlib 1.7.4 (last release 2020)
+is incompatible with bcrypt 5.x — it raises *"password cannot be longer than
+72 bytes"* from its own internal self-test. Pinning an old bcrypt to keep an
+unmaintained wrapper alive is the wrong trade on a security-critical path, and
+the wrapper was not handling the 72-byte limit for us anyway.
+
+**bcrypt's 72-byte limit is handled explicitly, not by truncation.** bcrypt
+ignores everything past 72 bytes, so two different long passwords sharing a
+72-byte prefix would be *interchangeable*. Passwords are SHA-256'd and
+base64-encoded first, giving a fixed 44-byte input: no user-facing length cap,
+nothing silently truncated. base64 (not the raw digest) matters — a raw digest
+can contain a NUL byte, which C-string handling inside bcrypt treats as
+end-of-input. There is a test asserting the prefix-collision case.
+
+**Login failures are uniform.** Unknown account, no credential set, wrong
+password, and deactivated account all return the same 401 with the same code,
+and `verify_password` burns a real bcrypt comparison against a dummy hash when
+no credential is stored — otherwise login *latency* reveals which accounts
+exist and are provisioned.
+
+### Seed accounts
+
+`data/seeds/06_app_users.sql` creates all six Part 26 roles with
+`password_hash = NULL`, which means **"cannot log in"** — never "any password
+works". Committing the file therefore creates no usable credential; passwords
+are set out of band with `scripts/set_password.py`, which reads from a hidden
+prompt (never argv, which would land in `ps` output and shell history).
+
+The seed domain is `@setu.example`, not `@setu.local`: `.local` is
+IANA-reserved for mDNS and is correctly rejected by `EmailStr`, while
+`.example` is reserved by RFC 2606 precisely so a stray address can never
+reach a real person.
+
+> **Migration note.** The original accounts were seeded at `@setu.local` and
+> could not be deleted once they had approval history — `alert_approval`
+> references them, and that history is part of the immutable audit record.
+> They were **deactivated** rather than removed, so past approvals stay
+> attributable while the accounts can no longer authenticate. Deleting
+> audit-referenced users is not something this system should make easy.
+
+### Verified, live
+
+Dispatch went from **200 with no token** to **401**; citizen and auditor
+tokens get **403**; a spoofed `approver_id` is **422** (rejected outright, via
+`model_config = {"extra": "forbid"}`, rather than silently ignored). 29 RBAC
+tests cover Part 26's matrix allow-and-deny per role, plus signature
+tampering and a role-escalation attempt that rewrites `role` in the JWT
+payload.
+
+### Still open
+
+`services/api/rbac.py` provides `assert_unit_in_scope` /
+`assert_alert_in_scope`, and they are wired into the alert write path — but
+the seeded accounts all have `unit_scope_id = NULL` (unscoped), because
+`admin_unit` ids are `BIGSERIAL` and not stable across a geometry reload.
+Assigning real scopes needs a lookup step at provisioning time. Until then,
+"officer" is effectively national, which is correct for a single-district
+deployment and wrong for a multi-district one — recorded here so the absence
+of a check is not mistaken for an oversight.
+
+Routers still to protect: `assistance`, `incidents`, `units`, `enrollment`,
+`response`, `ack`, `receipts`, `citizen`. The three §12.2 rows (auditor
+aggregate-only, relay_node never, citizen own-data-only) live in those files
+and are the highest-value remaining work.
+
+---
+
 ## 8.1 Five bugs a green test suite did not catch
 
 All 37 tests passed while live ingestion was completely broken. Every bug
