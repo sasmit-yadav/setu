@@ -28,8 +28,8 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 
 > A green test run is not the same as a working system. Everything above was
 > re-verified against the real database and the real feeds, not from memory —
-> and doing so surfaced five genuine bugs that all 37 tests had passed over.
-> See `docs/IMPLEMENTATION.md` §8.
+> and doing so surfaced five genuine bugs that all 37 tests then passing had passed over.
+> See `docs/IMPLEMENTATION.md` §6.
 
 ---
 
@@ -42,12 +42,11 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 | Relay-node seed data (live phones) | Twilio-verified numbers to replace `05_relay_nodes.sql` placeholder ciphertext | — |
 | Email escalation channel (live) | Brevo or Resend API key in `.env` | — |
 | Monitoring alerts | Discord/Slack incoming webhook URL | — |
-| **Decision:** is B10 (Community Relay Mode) buildable? | ~20 min Web Bluetooth spike on two Android phones — see `docs/IMPLEMENTATION.md` §6.1 | — |
+| **Decision:** is B10 (Community Relay Mode) buildable? | ~20 min Web Bluetooth spike on two Android phones — see `docs/IMPLEMENTATION.md` §8.1 | — |
 | **Decision:** where does the ML service run? | Host that isolates `torch`/`transformers` from the API process | — |
 
 ## 🟡 Ready to build — nothing external blocking these
 
-- [ ] **Officer console** — `web/console` (compose → validate → approve → dispatch); API surface is ready
 - [ ] **Neon enrollment import** — `consented_recipients: 0` on Neon; run `python run.py import-enrollment` when CSV is ready
 - [ ] **Gate 3 offline rehearsal** — snapshot/demo-fixture tooling for disconnected demo
 - [ ] **Finish RBAC across remaining routers** — auth + RBAC now exist
@@ -62,7 +61,7 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
       helpers exist and are wired in, but seeded accounts are unscoped
       (`NULL`) because `admin_unit` ids are not stable across a geometry
       reload. Needs a lookup step at provisioning time. See
-      `docs/IMPLEMENTATION.md` §8.0.
+      `docs/IMPLEMENTATION.md` §6.10.
 - [ ] **`services/ml`** — reach-risk / translation service (hosting TBD)
 
 ## 🟢 Done
@@ -83,8 +82,8 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 - [x] Admin-unit geometry loaded locally (8,302 rows ADM3+ADM5)
 - [x] `safe_zone` (281 rows), population, terrain, relay nodes (6 rows, placeholder phones)
 - [x] OpenCelliD — zero India rows documented honestly (§5.5 IMPLEMENTATION)
-- [x] Neon cloud DB — full bootstrap complete (`verify_data_layer` clean): 8,302 units, 114 config, 281 safe zones, 6 relay nodes
-- [x] **`app_config` — 114 rows** (was 71); all operational thresholds keyed and noted
+- [x] Neon cloud DB — full bootstrap complete (`verify_data_layer` clean): 8,302 units, 118 config, 281 safe zones, 6 relay nodes
+- [x] **`app_config` — 118 rows** (was 71); all operational thresholds keyed and noted
 - [x] **`python run.py seed-config`** — idempotent upsert from `04_app_config.sql`
 - [x] **`python run.py data-bootstrap`** — local migrate + config + enrollment CSV + verify
 - [x] **Hardcoding policy enforced** — `check_no_hardcoding.py` (6 service dirs) +
@@ -110,7 +109,7 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
       `POST /api/v1/admin/recipients/import`
 - [x] **Public/citizen API:** `GET /public/config`, `GET /public/signing-key`,
       `GET /citizen/deliveries/{id}`
-- [x] **CI:** `.github/workflows/ci.yml`, ruff, channel capability guard, 37 tests
+- [x] **CI:** `.github/workflows/ci.yml`, ruff, channel capability guard, 76 tests
 
 ### Application — citizen PWA (`web/citizen/`)
 
@@ -122,11 +121,37 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 - [x] Manual delivery ID entry (works without Firebase for dev/test)
 - [x] `npm run build` passes · `python run.py citizen-dev` → `:5173`
 
+### Application — operations console (`web/console/`)
+
+- [x] Vite + React 19 + TS, dark-first, ~2,000 lines. Built to Part 0.4 / 0.5 / 11
+      and **verified in a live browser against the running API**, not assumed —
+      see `docs/IMPLEMENTATION.md` §7
+- [x] Design tokens: exact 11.1 palette with measured contrast ratios recorded;
+      angular corner-cut panels (`clip-path`, `border-radius: 0`); JetBrains Mono
+      + `tabular-nums` on every number; glow on **extreme only**, suppressed
+      under `prefers-reduced-motion` (all confirmed in the DOM)
+- [x] **`AssuranceLadder`** — unprovable rungs struck through with the verbatim
+      `not_applicable_reason` from the database + `sr-only` announcement.
+      Verified live on a real siren delivery (3 struck rungs)
+- [x] **`QualityGate`** — GitHub-PR-checks pattern, failing check named, reason
+      adjacent to the disabled dispatch button, never a toast
+- [x] **`ApprovalPanel`** — missing slot at FULL contrast, satisfied slot quiet
+- [x] Command palette (`Ctrl+K`), login/JWT flow, Live Operations, Alert Detail
+- [x] Optimistic UI banned — every mutation re-reads from the API
+- [x] Two real bugs found by running it: ladder sampling buried the siren ladder;
+      `SeverityBadge` rendered genuinely-unknown severity as "Minor" (§7.2)
+
 ## ⚪ Not started, lower priority for now
 
-- [ ] **`web/console`** — officer ops UI (🟡 above — next priority)
+- [ ] **Console screens 3–5** — Incident timeline (D10f), Assistance Queue
+      (D11f), Command Board (D9f), Methodology. Part 0.4.3 names five
+      event-time screens; two are built (§7.3)
+- [ ] **D1f live map** — MapLibre + self-hosted `.pmtiles` (the offline beat
+      depends on tiles being a file, not a request — spec §1.6.5)
+- [ ] **WebSocket live feed** — console currently polls on load/refresh; Part 0.5's
+      kill-feed rail is not built
 - [ ] **`services/ml`** — no code, no hosting decision
-- [ ] Design tokens (`packages/tokens`)
+- [ ] Design tokens (`packages/tokens`) — currently console-local CSS
 - [ ] B9 human relay adapter (full flow — needs Twilio + real relay phones)
 - [ ] B10 peer relay transport (needs Web Bluetooth spike)
 - [ ] PDF audit report export
@@ -139,7 +164,7 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 |---|---|---|
 | Day 4 | Migrations, delivery core, F1, ingestion | ✅ Complete |
 | Day 5 | F3, C6, D7f/D8f, B8 webhooks, E4 | ✅ Backend complete; live FCM/Twilio deferred |
-| Day 6 | F2, D10f, citizen PWA, console, Gate 3 | 🟡 Citizen PWA MVP done; console + Gate 3 pending |
+| Day 6 | F2, D10f, citizen PWA, console, Gate 3 | 🟡 Citizen PWA + console (2 of 5 screens) done; Gate 3 pending |
 | Day 7+ | Response loop, analytics, rehearsal | ⚪ Not started |
 
 **When Firebase is ready:** drop service-account path in `.env` → real FCM + VAPID in citizen PWA.
@@ -150,7 +175,7 @@ zero broken hash links, `UPDATE audit_event` rejected by the Postgres trigger.
 
 ```powershell
 python run.py db-up
-python run.py seed-config          # refresh 114 app_config rows
+python run.py seed-config          # refresh 118 app_config rows
 python run.py verify-data          # admin units, config, recipients
 python run.py data-bootstrap       # local full bootstrap
 python run.py neon-bootstrap       # Neon: migrate + config + geometry

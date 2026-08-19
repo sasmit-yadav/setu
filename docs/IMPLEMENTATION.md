@@ -201,12 +201,19 @@ Space) so `torch`/`transformers` never load inside the API process. Two
 endpoints: `/embed` (dedup clustering) and `/translate` (IndicTrans2). Not
 started yet — no ML code exists in this repo.
 
-### 3.4 Frontend — citizen PWA shipped; console not started
+### 3.4 Frontend — both apps shipped
 
-| App | Path | Status |
-|---|---|---|
-| Citizen PWA | `web/citizen/` | ✅ MVP — Vite + React + Workbox service worker |
-| Officer console | `web/console/src/` | ⚪ empty — next build priority |
+Full detail in §7; this is the stack summary only.
+
+| App | Path | Stack | Status |
+|---|---|---|---|
+| Citizen PWA | `web/citizen/` | Vite + React 19 + Workbox | ✅ MVP — offline-capable |
+| Officer console | `web/console/` | Vite + React 19 + lucide-react | ✅ 2 of 5 event-time screens (§7.3) |
+
+The two apps share **no** styling or components. Part 0.4's governing
+decision is that they invert on almost every axis (dark/light, dense/sparse,
+keyboard/thumb, network-present/network-absent), so the three components that
+appear in both are designed twice rather than shared.
 
 **Citizen PWA (`web/citizen/`):** offline-capable alert viewer and response
 flow. All runtime tuning (PWA cache timeouts, BackgroundSync retention,
@@ -400,6 +407,7 @@ how the Neon verification was first attempted.
 | `0010_citizen_response` | `citizen_response`, `assistance_case` | ✅ |
 | `0011_relay` | `relay_node`, `relay_confirmation` | ✅ |
 | `0012_enrollment_and_views` | `recipient.phone_hash`/`consent_source`/`opted_out_at` (+ unique index, backfill); views `v_reachability`, `v_communication_vulnerability`, `v_lead_time`, `v_lead_time_coverage` | ✅ |
+| `0013_auth` | `app_user.password_hash`/`last_login_at`; `refresh_token` (revocable sessions); `audit_event(actor)` index for the contact-reveal audit query (§6.10) | ✅ |
 
 **`0012` fails loudly** (raises, does not proceed) if `PHONE_HASH_PEPPER` is
 unset — writing NULL hashes would leave the unique index inert and silently
@@ -419,8 +427,9 @@ this is expected (down-migrations are destructive by design), not a bug.
 | `01_channels.sql` | 8 channels, 13 escalation-policy rows across 4 severities | 8 + 13 |
 | `02_channel_capability.sql` | `channel_capability_tier`, 4 tiers × 8 channels | 32 |
 | `03_alert_sources.sql` | 6 alert sources (usgs, gdacs, thunderstorm_nowcast, manual, sachet, imd — last two disabled) | 6 |
-| `04_app_config.sql` | every threshold, keyed and noted | 114 |
+| `04_app_config.sql` | every threshold, keyed and noted | 118 |
 | `05_relay_nodes.sql` | 6 demo relay nodes — **currently placeholder ciphertext**, real geometry join | 6 (was 0 until §5.4's geometry load) |
+| `06_app_users.sql` | all six Part 26 roles, `password_hash` **NULL** — "cannot log in", never "any password works" (§6.10) | 6 |
 
 `scripts/verify_seeds.py` asserts real counted minimums against the database
 after seeding — **not** the design spec's prose numbers, which don't match
@@ -565,7 +574,7 @@ the last verification:
 | | Local (Docker, port 5433) | Neon (`.env.neon`) |
 |---|---|---|
 | Migrations `0001`–`0012` | ✅ applied, round-tripped | ✅ applied, round-tripped |
-| Seed files `01`–`04` | ✅ applied | ✅ applied (112→114 config via upsert) |
+| Seed files `01`–`04` | ✅ applied | ✅ applied (config via idempotent upsert) |
 | `05_relay_nodes.sql` | ✅ 6 rows (geometry exists) | ⏳ depends on geometry load completing |
 | `admin_unit` ADM3+ADM5 | ✅ 8,302 rows | ✅ 8,302 rows (neon-bootstrap verified ADM load) |
 | `population` on units | ✅ all ADM3 set | ✅ 6,822/6,822 (neon-bootstrap) |
@@ -592,13 +601,13 @@ but because rows aren't loaded yet.
 
 ---
 
-## 8. Application layer — as built (roadmap Day 4–6 slice)
+## 6. Application layer — as built
 
 This section tracks **running code**, not the design spec. Updated whenever
-a module ships. Last verified: **37/37 pytest green** against local Docker
+a module ships. Last verified: **76/76 pytest green** against local Docker
 (Postgres `:5433`, Redis `:6379`).
 
-### 8.1 FastAPI surface (`services/api/`)
+### 6.1 FastAPI surface (`services/api/`)
 
 | Method | Path | Module | Status |
 |---|---|---|---|
@@ -657,7 +666,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 | `verify-data` | `scripts/verify_data_layer.py` |
 | `citizen-dev` | Vite dev server `:5173` |
 
-### 8.2 Ingestion (`services/ingestion/`)
+### 6.2 Ingestion (`services/ingestion/`)
 
 - **`UsgsAdapter`** — zero-auth GeoJSON; magnitude→severity from
   `ingest.usgs.mag_*` config keys; `estimated_onset_at` always NULL
@@ -671,7 +680,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
   creates new incident rows before persist.
 - **Fixtures:** `tests/fixtures/usgs_feature.json`, `gdacs_search.json`.
 
-### 8.3 Delivery engine (`services/delivery/`)
+### 6.3 Delivery engine (`services/delivery/`)
 
 - **`state_machine.py`** — 8-state transactional lifecycle with
   `FOR UPDATE` transitions and audit append.
@@ -689,7 +698,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
   when env creds exist; siren/human_relay/community_relay remain stubs
   pending hardware/Twilio/B10 spike.
 
-### 8.4 Governance (`services/governance/`)
+### 6.4 Governance (`services/governance/`)
 
 - **`quality_gate.py`** — all **6/6 F1 rules** live:
   `geometry_non_empty`, `expiry_set`, `target_count_plausible`,
@@ -706,7 +715,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
   expires `pending`/`queued` deliveries when
   `versioning.cancel_inflight_on_supersede=true`.
 
-### 8.5 Citizen response, enrollment & assistance (C6 + E4 + D11f)
+### 6.5 Citizen response, enrollment & assistance (C6 + E4 + D11f)
 
 - **`citizen_response.py`** — idempotent `POST /response` handler;
   `CHECK (location IS NULL OR location_consent=true)` enforced at DB;
@@ -723,13 +732,13 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 - Proximity normalisation uses `assistance.proximity_max_m` against
   unit centroid or consented citizen point.
 
-### 8.6 Audit timeline (D10f)
+### 6.6 Audit timeline (D10f)
 
 - **`audit/ledger.py`** — hash-chained append-only events.
 - **`audit/timeline.py`** — `GET /incidents/{id}/timeline` is a straight
   `SELECT … ORDER BY occurred_at` — no second log, no materialised view.
 
-### 8.7 CI & quality gates
+### 6.7 CI & quality gates
 
 - **`.github/workflows/ci.yml`** — PostGIS + Redis services, migrate,
   seed, ruff, `check_no_hardcoding.py`, `check_pwa_config.py`,
@@ -741,7 +750,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
   `channel` rows if the DB already has data; use `seed-config` for
   config-only refresh, or `db-reset` for a clean slate.
 
-### 8.8 Config keys added beyond Part 21 prose
+### 6.8 Config keys added beyond Part 21 prose
 
 | Key | Why |
 |---|---|
@@ -760,7 +769,7 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 | `enrollment.*` | CSV caps, phone digit lengths, SMS keywords/replies |
 | `ivr.dtmf.*`, `ivr.prompt.main` | Twilio Gather prompts and digit map |
 
-### 8.9 Hardcoding policy — what's allowed where
+### 6.9 Hardcoding policy — what's allowed where
 
 **Rule:** operational thresholds, timeouts, caps, and policy defaults live
 in `app_config` (seeded by `04_app_config.sql`, refreshed via
@@ -791,7 +800,7 @@ API) or `scripts/db_config_sync.py` (sync loaders).
 `pwa.network_timeout_seconds` etc. App UI waits for config before enabling
 free-text `maxLength`.
 
-## 8.0 Authentication and RBAC (Part 26)
+### 6.10 Authentication and RBAC (Part 26)
 
 Until migration `0013`, **every one of the API's 29 endpoints was
 unauthenticated** — including `POST /alerts/{id}/dispatch`, which fans an
@@ -887,7 +896,7 @@ and are the highest-value remaining work.
 
 ---
 
-## 8.0.1 The platform had never delivered anything
+### 6.11 The platform had never delivered anything
 
 Found while asking "is the core loop actually end to end?" — and it was not.
 
@@ -958,9 +967,9 @@ the metrics move, so that direction needs its own test).
 
 ---
 
-## 8.1 Five bugs a green test suite did not catch
+### 6.12 Five bugs a green test suite did not catch
 
-All 37 tests passed while live ingestion was completely broken. Every bug
+All 37 tests passing at the time passed while live ingestion was completely broken. Every bug
 below was found by running the real system against the real database and the
 real feeds — not by reading code and not by running tests. Recorded because
 the *pattern* generalises, not just the fixes.
@@ -1034,9 +1043,110 @@ requires, and for `conftest.py` using the production connection path.
 
 ---
 
-## 6. Open engineering questions
+## 7. Frontend
 
-### 6.1 Community Relay Mode (B10) — Web Bluetooth role limitation
+Two apps that deliberately invert on almost every axis. Part 0.4 is explicit
+that this is the governing decision of the whole design: *"any pattern we
+borrow gets tagged with which of the two it belongs to."* Only three
+components appear in both — the alert card, the assurance indicator and the
+language selector — and each is **designed twice, not shared**. Nothing in
+`web/console/src/styles/` may be imported by `web/citizen`.
+
+| | Ops console (P1·P2·P5) | Citizen PWA (P3) |
+|---|---|---|
+| Holder | trained officer, seated, at a desk | frightened person, standing, possibly in the dark |
+| Info per screen | many panels — comparison **is** the job | **one question** |
+| Density | high (4/8/12/16 rhythm) | low, large targets |
+| Body text | 14–16px | **18px minimum** |
+| Theme | **dark-first** | **light-first** — a dark screen at night in a flood reads as "phone is dead" |
+| Input | keyboard + command palette | one thumb |
+| Motion | purposeful only | near zero |
+| Network | assumed present | **assumed absent** |
+
+### 7.1 The operations console (`web/console/`)
+
+Vite + React 19 + TypeScript, ~2,000 lines. Dark-first, high-density — the
+Linear / Datadog / PagerDuty lineage named in Part 0.4.2.
+
+**Design rules, and how each was verified** (checked in the live DOM against
+the running API, not asserted):
+
+| Rule | Source | Verified as |
+|---|---|---|
+| Exact token palette | 11.1 | `--bg-base: #0b0d10`; every hex carries its measured contrast ratio in `tokens.css`, because "AA on every pairing" is only checkable if the numbers are written down |
+| **Angular corner-cut panels**, not rounded | 0.5 (XCOM 2) | `clip-path: polygon(...)`, `border-radius: 0px` |
+| JetBrains Mono + `tabular-nums` on every number | 11.1 ("non-negotiable") | `font-variant-numeric: tabular-nums` |
+| Glow on **exactly one** severity tier | 0.5 | only `.sev--extreme`; suppressed under `prefers-reduced-motion` |
+| Icon **and** text label, never colour alone | 11.1 | every badge, chip and rung |
+| Fixed column widths, no layout shift on tick | 11.3 | `grid-template-columns` fixed + tabular-nums |
+| `prefers-reduced-motion` collapses all motion | 0.5 ("no exceptions") | `--dur-count: 0ms`, glow removed — confirmed live |
+| Command palette `Ctrl+K`, teaches its shortcuts | 0.4.3 | shortcut rendered per row |
+| **No emoji as iconography** | 0.4.8 | `lucide-react` throughout, including the peer-relay "⇄" |
+
+**Optimistic UI is banned** (11.3). Nothing renders as approved, dispatched or
+delivered until the server confirms it; every mutation re-reads from the API
+rather than patching local state. *"Showing 'acknowledged' before the server
+confirms would be a lie in exactly the place lies are most dangerous."*
+
+**The three governance components carry their specified beats:**
+
+- **`QualityGate`** — GitHub-PR-checks pattern (0.4.6). Six rows, the failing
+  check **named**, and the reason sits *adjacent to the disabled dispatch
+  button* — never a dismissible toast. Part 0.5: *"failing a gate must feel
+  like a seatbelt, not a nag."* A `warn` (oversized area) is styled distinctly
+  from a `fail` because it does **not** block.
+- **`ApprovalPanel`** — the **missing** slot is full-contrast with a solid
+  warning border while the *satisfied* slot is the quiet one. Part 0.5 is
+  explicit and counter-intuitive here: *"the empty checkbox rendered at full
+  contrast, not greyed — the UI's job here is to make the missing signature
+  the loudest thing on screen."* Greying the gap would make it recede.
+- **`AssuranceLadder`** — unprovable rungs render struck through with the
+  **verbatim `not_applicable_reason` from `channel_capability_tier`**, plus
+  an `sr-only` "— not applicable" so a screen reader does not read a struck
+  label as a normal one. Nothing about channel capability is hardcoded in the
+  component; the moment it contains a list of what SMS can do, the database
+  stops being the source of truth and Rule 8 becomes a comment rather than a
+  constraint.
+
+**Verified live** on a real siren delivery: three rungs with
+`text-decoration: line-through`, each carrying its real seeded reason
+("A siren or public-address broadcast produces no digital receipt of any
+kind…").
+
+### 7.2 Two bugs found by running the console, not reading it
+
+**The ladder sample buried its own best evidence.** Deliveries were sampled
+`slice(0, 12)` by id, so the siren ladder — the single most informative one,
+with three struck-through rungs — sat behind 250 identical simulated ladders
+and never rendered. Now samples **one per channel first**, then most recent,
+and states what it is showing rather than truncating silently (Part 0.5's
+no-silent-caps guardrail).
+
+**`SeverityBadge` displayed "Minor" for unknown severity.** It fell back to
+`MAP.minor` for anything outside the four canonical tiers — and `unknown` is a
+**real value in this database** (24 alerts, mostly GDACS levels that do not map
+onto our scale). So alerts whose severity was never established rendered as
+the *lowest* severity we have, inviting an officer to deprioritise something we
+simply do not know about. Now renders as **Unknown**, dashed and neutral, with
+the source value in the `title`. Same principle as the struck-through rung: *a
+missing signal and a negative signal are different facts and must never render
+identically.*
+
+### 7.3 What the console does not have yet
+
+Only **Live Operations** and **Alert Detail** are built. Part 0.4.3 names five
+screens that belong in navigation during an event; three are missing —
+**Incident timeline (D10f)**, **Assistance Queue (D11f)**, **Command Board
+(D9f)** — along with **Methodology**. There is no MapLibre map (D1f) and no
+WebSocket live feed yet; the screen polls on load and on explicit refresh.
+The command palette currently registers two commands, so it is wired but not
+yet carrying the 28-feature load it exists to solve.
+
+---
+
+## 8. Open engineering questions
+
+### 8.1 Community Relay Mode (B10) — Web Bluetooth role limitation
 
 `shareNearby()` as designed calls `navigator.bluetooth.requestDevice()` and
 connects as a GATT **client**. No shipping browser exposes the GATT
@@ -1054,12 +1164,12 @@ it's already a standalone, non-load-bearing feature per the design doc.
 The Ed25519 signing/verification work is worth keeping regardless of this
 outcome — it's reused for verifying the FCM push payload too.
 
-### 6.2 ML service hosting
+### 8.2 ML service hosting
 
 Not yet decided or built. Needs an isolated deployment target that never
 loads inside the API process (§3.1's hard rule).
 
-### 6.3 Neon / cloud database
+### 8.3 Neon / cloud database
 
 Neon is **set up and migration-verified** (§5.6). Full geometry bootstrap
 runs via `python run.py neon-bootstrap` (`.env.neon`). As of last check:
@@ -1069,7 +1179,7 @@ may still be running on long jobs. Re-run `python run.py verify-data` with
 
 ---
 
-## 7. Repository layout
+## 9. Repository layout
 
 ```
 setu/
@@ -1090,11 +1200,15 @@ setu/
 │   ├── crypto/          alert_signing.py (Ed25519 — server side)
 │   └── ml/              (not started — hosting TBD)
 ├── web/
-│   ├── console/src/     (empty — React ops console)
+│   ├── console/         Ops console — Vite + React, dark-first (§7)
+│   │   └── src/         lib/api.ts · components/{AssuranceLadder, QualityGate,
+│   │                    ApprovalPanel, CommandPalette, Kpi, SeverityBadge,
+│   │                    ProvenanceChip} · pages/{Login, LiveOps, AlertDetail}
+│   │                    · styles/{tokens, base, layout}.css
 │   └── citizen/         PWA — Vite + React + Workbox (src/sw.ts)
-├── data/seeds/          01–05 applied locally
-├── migrations/          0001–0012 applied locally + Neon (schema)
-├── tests/               unit/ + property/ + fixtures/ — 37 tests green
+├── data/seeds/          01–06 applied locally (06 = app_user roles)
+├── migrations/          0001–0013 applied locally + Neon (schema)
+├── tests/               unit/ + property/ + fixtures/ — 76 tests green
 ├── scripts/             bootstrap, CI guards, geometry pipeline, upsert_app_config, db_config_sync
 ├── infra/               docker-compose.yml (Postgres :5433, Redis, MailHog)
 ├── .github/workflows/   ci.yml
