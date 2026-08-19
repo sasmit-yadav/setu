@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # ── v3.0 secrets (Part 25 — see the rotation notes in .env.example) ──
     phone_hash_pepper: str = ""
+    pgcrypto_sym_key: str = ""
     alert_signing_seed_b64: str = ""
 
     # ── ml service (Part 22 — services/api must never import torch) ──

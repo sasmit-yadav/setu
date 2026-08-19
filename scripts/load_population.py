@@ -21,7 +21,6 @@ import sys
 import psycopg
 import rasterio
 from rasterio.mask import mask
-from shapely.geometry import shape
 
 
 def _fix_windows_console_encoding() -> None:

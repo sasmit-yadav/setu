@@ -8,7 +8,6 @@ with a connection error that looks like a config problem and is not.
 
 from __future__ import annotations
 
-import os
 import socket
 import sys
 import time

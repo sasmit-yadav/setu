@@ -46,7 +46,7 @@ async def main() -> int:
     # + moderate 1-2 (2) + minor 1 (1) = 13.
     check("escalation_policy rows", await scalar(conn, "SELECT COUNT(*) FROM escalation_policy"), 13)
     check("alert_source rows", await scalar(conn, "SELECT COUNT(*) FROM alert_source"), 4)
-    check("app_config rows", await scalar(conn, "SELECT COUNT(*) FROM app_config"), 60)
+    check("app_config rows", await scalar(conn, "SELECT COUNT(*) FROM app_config"), 110)
 
     # Rule 8, mechanically: every unsupported tier MUST carry a reason —
     # channel_capability_tier's own CHECK constraint already enforces this at

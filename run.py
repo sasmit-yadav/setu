@@ -44,15 +44,15 @@ def task(help_text: str):
     return deco
 
 
-def sh(cmd: list[str], **kw) -> int:
+def sh(cmd: list[str], *, cwd: pathlib.Path | None = None, **kw) -> int:
     """Run a command, streaming output. Returns its exit code."""
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.call(cmd, cwd=ROOT, **kw)
+    return subprocess.call(cmd, cwd=cwd or ROOT, **kw)
 
 
-def must(cmd: list[str], **kw) -> None:
+def must(cmd: list[str], *, cwd: pathlib.Path | None = None, **kw) -> None:
     """Run a command; abort the whole task run if it fails."""
-    if sh(cmd, **kw) != 0:
+    if sh(cmd, cwd=cwd, **kw) != 0:
         print(f"\nFAILED: {' '.join(cmd)}", file=sys.stderr)
         sys.exit(1)
 
@@ -179,6 +179,64 @@ def check() -> None:
 @task("Run the test suite")
 def test() -> None:
     must([PY, "-m", "pytest", "-q"])
+
+
+@task("Start FastAPI on :8000")
+def api() -> None:
+    load_env()
+    must([PY, "-m", "uvicorn", "services.api.main:app", "--reload", "--port", "8000"])
+
+
+@task("Delivery worker (Redis Streams consumer)")
+def worker() -> None:
+    load_env()
+    must([PY, "-m", "services.delivery.worker"])
+
+
+@task("Ingestion scheduler (USGS + GDACS pollers)")
+def ingest() -> None:
+    load_env()
+    must([PY, "-m", "services.ingestion.scheduler"])
+
+
+@task("Apply data/seeds/04_app_config.sql idempotently (ON CONFLICT upsert)")
+def seed_config() -> None:
+    must([PY, "scripts/upsert_app_config.py"])
+
+
+@task("Start citizen PWA dev server on :5173")
+def citizen_dev() -> None:
+    citizen_dir = ROOT / "web" / "citizen"
+    if not (citizen_dir / "node_modules").exists():
+        must(["npm", "install"], cwd=citizen_dir)
+    must(["npm", "run", "dev"], cwd=citizen_dir)
+
+
+@task("Re-run geometry loaders against Neon (.env.neon)")
+def neon_geometry() -> None:
+    must([PY, "scripts/push_geometry_to_neon.py"])
+
+
+@task("Full Neon data bootstrap: migrate + config + geometry + verify")
+def neon_bootstrap() -> None:
+    must([PY, "scripts/bootstrap_neon.py"])
+
+
+@task("Local data bootstrap: migrate + config + enrollment CSV + verify")
+def data_bootstrap() -> None:
+    must([PY, "scripts/bootstrap_local_data.py"])
+
+
+@task("Import data/enrollment/*.csv (dry-run then live)")
+def import_enrollment() -> None:
+    load_env()
+    must([PY, "scripts/import_enrollment_csv.py"])
+
+
+@task("Verify admin units, config, channels, recipients")
+def verify_data() -> None:
+    load_env()
+    must([PY, "scripts/verify_data_layer.py"])
 
 
 # ─────────────────────────────── main ───────────────────────────────

@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: setu
+          POSTGRES_PASSWORD: setu
+          POSTGRES_DB: setu
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U setu -d setu"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://setu:setu@localhost:5433/setu
+      DATABASE_URL_DIRECT: postgresql://setu:setu@localhost:5433/setu
+      REDIS_URL: redis://localhost:6379/0
+      PHONE_HASH_PEPPER: ci-test-pepper-not-for-production-use
+      ALERT_SIGNING_SEED_B64: dGVzdC1zZWVkLW5vdC1mb3ItcHJvZHVjdGlvbi11c2U=
+      JWT_SECRET: ci-jwt-secret
+      HMAC_SECRET: ci-hmac-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Migrate
+        run: python -m alembic upgrade head
+
+      - name: Seed
+        run: |
+          for f in data/seeds/*.sql; do
+            PGPASSWORD=setu psql -h localhost -p 5433 -U setu -d setu -v ON_ERROR_STOP=1 -f "$f"
+          done
+          python scripts/verify_seeds.py
+
+      - name: Ruff
+        run: python -m ruff check services/
+
+      - name: Hardcoding guard
+        run: python scripts/check_no_hardcoding.py
+
+      - name: PWA config guard
+        run: python scripts/check_pwa_config.py
+
+      - name: Env example guard
+        run: python scripts/check_env_example.py
+
+      - name: Channel capability guard
+        run: python scripts/check_channel_capability.py
+
+      - name: Unit tests
+        run: python -m pytest tests/unit -q --cov=services/delivery --cov-fail-under=95
+
+      - name: Property tests
+        run: python -m pytest tests/property -q

@@ -36,3 +36,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# TypeScript incremental build cache — machine-local, never committed
+*.tsbuildinfo

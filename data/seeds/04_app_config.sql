@@ -16,6 +16,31 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('dedup.similarity_threshold', '0.72', 'cosine','Agglomerative cut — re-tune after the 200-pair label pass'),
   ('dedup.window_hours',         '6',    'hours', 'Bounds the O(n^2) pairwise comparison in cluster()');
 
+-- ═══ Ingestion + delivery worker tuning ═══
+INSERT INTO app_config (key, value, unit, note) VALUES
+  ('ingest.poll_lookback_hours', '24', 'hours', 'Default discover() window for ingestion pollers'),
+  ('ingest.alert_default_ttl_hours', '24', 'hours', 'Default expires_at offset from effective_at'),
+  ('ingest.http_timeout_s', '30', 'seconds', 'Default outbound HTTP timeout for ingestion adapters'),
+  ('ingest.http_not_modified_status', '304', 'http', 'Treat as NotModified for conditional GET adapters'),
+  ('ingest.usgs.time_ms_divisor', '1000', 'factor', 'USGS properties.time epoch milliseconds to seconds'),
+  ('ingest.usgs.alert_radius_km', '50', 'km', 'Buffer around USGS epicenter for alert polygon'),
+  ('ingest.usgs.mag_extreme', '7.0', 'mag', 'USGS magnitude floor for extreme severity'),
+  ('ingest.usgs.mag_severe', '6.0', 'mag', 'USGS magnitude floor for severe severity'),
+  ('ingest.usgs.mag_moderate', '5.0', 'mag', 'USGS magnitude floor for moderate severity'),
+  ('ingest.gdacs.alert_radius_km', '75', 'km', 'Fallback buffer when GDACS returns a point geometry'),
+  ('geo.km_to_meters', '1000', 'meters', 'Kilometres to metres conversion for ST_Buffer'),
+  ('time.seconds_per_minute', '60', 'seconds', 'Minutes to seconds conversion'),
+  ('http.status_client_error_min', '400', 'http', 'Outbound HTTP responses at or above this are failures'),
+  ('delivery.xread_count', '10', 'messages', 'Redis XREADGROUP batch count'),
+  ('delivery.xread_block_ms', '5000', 'ms', 'Redis XREADGROUP block timeout');
+
+-- ═══ Simulated carrier profile (§8.5 — values in config, not code) ═══
+INSERT INTO app_config (key, value, unit, note) VALUES
+  ('simulated.latency_ms_min', '10',  'ms',    'Simulated carrier minimum latency'),
+  ('simulated.latency_ms_max', '200', 'ms',    'Simulated carrier maximum latency'),
+  ('simulated.failure_rate',   '0.05','ratio', 'Simulated transient failure probability'),
+  ('simulated.ms_to_seconds',  '0.001','factor','Milliseconds to seconds conversion for simulated latency');
+
 -- ═══ System-wide (§21.3) ═══
 INSERT INTO app_config (key, value, unit, note) VALUES
   ('delivery.batch_size',             '100',   'recipients', '§6.2 — one XADD per this many'),
@@ -51,7 +76,9 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('quality_gate.required_lang_for_severe.KL',  'ml', 'lang', 'Kerala case-study state: Malayalam required for severe'),
   ('quality_gate.required_lang_for_severe.MH',  'mr', 'lang', 'Maharashtra case-study state (Palghar): Marathi, NOT Malayalam'),
   ('quality_gate.required_lang_for_extreme.KL', 'ml', 'lang', 'Same, for extreme'),
-  ('quality_gate.required_lang_for_extreme.MH', 'mr', 'lang', 'Same, for extreme');
+  ('quality_gate.required_lang_for_extreme.MH', 'mr', 'lang', 'Same, for extreme'),
+  ('case_study.bbox.KL', '10.8,74.5,12.2,77.0', 'bbox', 'Kerala case-study region (Wayanad) — south,west,north,east'),
+  ('case_study.bbox.MH', '19.3,72.6,20.2,73.4', 'bbox', 'Maharashtra case-study region (Palghar) — south,west,north,east');
 
 -- ═══ F2 Versioning ═══
 INSERT INTO app_config (key, value, unit, note) VALUES
@@ -81,10 +108,30 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('assistance.weight.proximity',         '0.15', 'ratio', 'Distance to the hazard polygon, normalised'),
   ('assistance.weight.time_waiting',      '0.10', 'ratio', 'Smallest weight deliberately — waiting must never outrank newly trapped'),
   ('assistance.max_wait_minutes', '120', 'minutes', 'Normalisation ceiling for time_waiting'),
+  ('assistance.wait_norm_max', '1', 'ratio', 'Maximum normalised wait factor'),
   ('assistance.response_severity.trapped',            '1.0', 'score', 'Immediate threat to life'),
   ('assistance.response_severity.medical',            '0.9', 'score', 'Immediate threat to life, may be stationary'),
   ('assistance.response_severity.unable_to_evacuate',  '0.7', 'score', 'Threatened but not yet in immediate danger'),
   ('assistance.response_severity.other',              '0.4', 'score', 'Unknown need — triaged by a human'),
+  ('assistance.proximity_max_m', '50000', 'meters', 'Normalisation ceiling for proximity factor in D11f priority'),
+  ('response.free_text_max_chars', '280', 'chars', 'Pydantic cap for C6 other free-text'),
+  ('assistance.default_vulnerability', '0.5', 'normalized', 'Fallback when unit_features.terrain_ruggedness is NULL'),
+  ('risk.top_factors_limit', '5', 'factors', 'Max factor rows returned by GET /units/{id}/risk'),
+  ('alert.manual.default_radius_km', '25', 'km', 'Officer-composed point alert buffer when no polygon supplied'),
+  ('api.idempotency_ttl_seconds', '86400', 'seconds', 'Redis TTL for dispatch idempotency replay cache'),
+  ('api.version_conflict_retry_after_ms', '500', 'ms', 'Retry-After hint when supersede lock is held'),
+  ('api.list_default_limit', '50', 'rows', 'Default LIMIT for list endpoints when caller omits ?limit='),
+  ('geometry.admin_unit_batch_size', '500', 'rows', 'INSERT batch size for load_admin_units.py'),
+  ('enrollment.sms_rate_limit_per_minute', '5', 'messages', 'Inbound SMS keyword rate limit per sender'),
+  ('enrollment.sms_rate_window_seconds', '60', 'seconds', 'Rate limit window for inbound SMS keywords'),
+  ('enrollment.sms_auto_reply_registered', 'SETU: You are registered for disaster alerts. Reply STOP to opt out.', 'string', 'Auto-reply after REGISTER'),
+  ('enrollment.sms_auto_reply_stopped', 'SETU: You have been opted out. Reply REGISTER to re-enroll.', 'string', 'Auto-reply after STOP'),
+  ('ivr.dtmf.safe', '1', 'digit', 'DTMF digit for I am safe'),
+  ('ivr.dtmf.need_help', '2', 'digit', 'DTMF digit opening assistance submenu'),
+  ('ivr.dtmf.trapped', '1', 'digit', 'Assistance submenu: trapped'),
+  ('ivr.dtmf.medical', '2', 'digit', 'Assistance submenu: medical'),
+  ('ivr.dtmf.unable_to_evacuate', '3', 'digit', 'Assistance submenu: unable to evacuate'),
+  ('ivr.prompt.main', 'Press {safe} if you are safe. Press {need_help} if you need help.', 'string', 'IVR Gather prompt'),
   ('severity.rank.extreme',  '1.0',  'score', 'Shared severity ranking, used by priority and elsewhere'),
   ('severity.rank.severe',   '0.75', 'score', ''),
   ('severity.rank.moderate', '0.5',  'score', ''),
@@ -128,4 +175,6 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('enrollment.sms_keyword_register', 'REGISTER', 'string', 'Inbound keyword; case-insensitive'),
   ('enrollment.sms_keyword_stop',     'STOP',     'string', 'Opt-out. Honoured immediately and permanently, TRAI-aligned'),
   ('enrollment.csv_max_rows',         '5000',     'rows',   'Per-import cap'),
-  ('enrollment.csv_require_dry_run',  'true',     'bool',   'A destructive bulk write must be previewed first');
+  ('enrollment.csv_require_dry_run',  'true',     'bool',   'A destructive bulk write must be previewed first'),
+  ('enrollment.phone_local_digits',   '10',       'digits', 'National significant number length without country code'),
+  ('enrollment.phone_country_digits', '12',       'digits', 'E.164 length including India country code 91');

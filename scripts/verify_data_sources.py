@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -50,7 +50,6 @@ def check(name: str, fn) -> None:
     t0 = time.monotonic()
     try:
         detail = fn()
-        status = "LIVE" if detail is not True else ""
         results.append(Result(name, "LIVE", detail if isinstance(detail, str) else "",
                                (time.monotonic() - t0) * 1000))
     except SkipCheck as e:
@@ -104,11 +103,14 @@ def check_open_meteo_convective():
     )
     r.raise_for_status()
     hourly = r.json().get("hourly", {})
-    have = [k for k in ("cape", "lifted_index", "convective_inhibition", "precipitation_probability") if k in hourly]
-    missing = [k for k in ("cape", "lifted_index", "convective_inhibition", "precipitation_probability") if k not in hourly]
+    required = ("cape", "lifted_index", "convective_inhibition", "precipitation_probability")
+    missing = [k for k in required if k not in hourly]
     if missing:
         raise RuntimeError(f"missing variables in response: {missing}")
-    return f"200 OK, all 4 variables present ({len(hourly.get('time', []))} hourly points)"
+    return (
+        f"200 OK, all {len(required)} variables present "
+        f"({len(hourly.get('time', []))} hourly points)"
+    )
 
 
 def check_open_meteo_precip():

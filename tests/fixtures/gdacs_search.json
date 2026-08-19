@@ -1,0 +1,184 @@
+{
+  "features": [
+    {
+      "type": "Feature",
+      "bbox": [
+        -0.7181,
+        42.4725,
+        -0.7181,
+        42.4725
+      ],
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -0.7181,
+          42.4725
+        ]
+      },
+      "properties": {
+        "eventtype": "WF",
+        "eventid": 1030410,
+        "episodeid": 23,
+        "eventname": "",
+        "glide": "",
+        "name": "Forest fires in Spain",
+        "description": "Forest fires in Spain",
+        "htmldescription": "Orange Forest fires in Spain from: 10 Aug 2026 to: 17 Aug 2026.",
+        "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/WF.png",
+        "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/WF.png",
+        "url": {
+          "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=WF&eventid=1030410&episodeid=23",
+          "report": "https://www.gdacs.org/report.aspx?eventid=1030410&episodeid=23&eventtype=WF",
+          "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=WF&eventid=1030410"
+        },
+        "alertlevel": "Orange",
+        "alertscore": 2,
+        "episodealertlevel": "Orange",
+        "episodealertscore": 1.5,
+        "istemporary": "false",
+        "iscurrent": "true",
+        "country": "Spain",
+        "fromdate": "2026-08-10T00:00:00",
+        "todate": "2026-08-17T00:00:00",
+        "datemodified": "2026-08-18T12:29:51.23",
+        "iso3": "ESP",
+        "source": "GWIS",
+        "sourceid": "",
+        "polygonlabel": "Centroid",
+        "Class": "Point_Centroid",
+        "affectedcountries": [
+          {
+            "iso2": "ES",
+            "iso3": "ESP",
+            "countryname": "Spain"
+          }
+        ],
+        "severitydata": {
+          "severity": 19294.0,
+          "severitytext": "1.5 impact for forestfire in 19294 ha",
+          "severityunit": "ha"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "bbox": [
+        6.0772,
+        50.5262,
+        6.0772,
+        50.5262
+      ],
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.0772,
+          50.5262
+        ]
+      },
+      "properties": {
+        "eventtype": "WF",
+        "eventid": 1030534,
+        "episodeid": 5,
+        "eventname": "",
+        "glide": "",
+        "name": "Forest fires in Belgium",
+        "description": "Forest fires in Belgium",
+        "htmldescription": "Orange Forest fires in Belgium from: 14 Aug 2026 to: 17 Aug 2026.",
+        "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/WF.png",
+        "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/WF.png",
+        "url": {
+          "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=WF&eventid=1030534&episodeid=5",
+          "report": "https://www.gdacs.org/report.aspx?eventid=1030534&episodeid=5&eventtype=WF",
+          "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=WF&eventid=1030534"
+        },
+        "alertlevel": "Orange",
+        "alertscore": 2,
+        "episodealertlevel": "Orange",
+        "episodealertscore": 1.5,
+        "istemporary": "false",
+        "iscurrent": "true",
+        "country": "Belgium",
+        "fromdate": "2026-08-14T00:00:00",
+        "todate": "2026-08-17T00:00:00",
+        "datemodified": "2026-08-18T14:00:15",
+        "iso3": "BEL",
+        "source": "GWIS",
+        "sourceid": "",
+        "polygonlabel": "Centroid",
+        "Class": "Point_Centroid",
+        "affectedcountries": [
+          {
+            "iso2": "BE",
+            "iso3": "BEL",
+            "countryname": "Belgium"
+          }
+        ],
+        "severitydata": {
+          "severity": 6356.0,
+          "severitytext": "1.5 impact for forestfire in 6356 ha",
+          "severityunit": "ha"
+        }
+      }
+    },
+    {
+      "type": "Feature",
+      "bbox": [
+        119.9017,
+        30.8308,
+        119.9017,
+        30.8308
+      ],
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          119.9017,
+          30.8308
+        ]
+      },
+      "properties": {
+        "eventtype": "FL",
+        "eventid": 1104081,
+        "episodeid": 9,
+        "eventname": "",
+        "glide": "FL-2026-000148-CHN",
+        "name": "Flood in China",
+        "description": "Flood in China",
+        "htmldescription": "Orange Flood in China from: 31 Jul 2026 01 to: 16 Aug 2026 01.",
+        "icon": "https://www.gdacs.org/images/gdacs_icons/maps/Green/FL.png",
+        "iconoverall": "https://www.gdacs.org/images/gdacs_icons/maps/Orange/FL.png",
+        "url": {
+          "geometry": "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=FL&eventid=1104081&episodeid=9",
+          "report": "https://www.gdacs.org/report.aspx?eventid=1104081&episodeid=9&eventtype=FL",
+          "details": "https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=FL&eventid=1104081"
+        },
+        "alertlevel": "Orange",
+        "alertscore": 2,
+        "episodealertlevel": "Green",
+        "episodealertscore": 0.5,
+        "istemporary": "false",
+        "iscurrent": "true",
+        "country": "China",
+        "fromdate": "2026-07-31T01:00:00",
+        "todate": "2026-08-16T01:00:00",
+        "datemodified": "2026-08-17T05:49:59",
+        "iso3": "CHN",
+        "source": "GLOFAS",
+        "sourceid": "",
+        "polygonlabel": "Centroid",
+        "Class": "Point_Centroid",
+        "affectedcountries": [
+          {
+            "iso2": "CN",
+            "iso3": "CHN",
+            "countryname": "China"
+          }
+        ],
+        "severitydata": {
+          "severity": 0.0,
+          "severitytext": "Magnitude 0 ",
+          "severityunit": ""
+        }
+      }
+    }
+  ]
+}

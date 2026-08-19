@@ -1,0 +1,149 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 1.25rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.eyebrow {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  margin: 0;
+}
+
+h1 {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.body {
+  line-height: 1.5;
+  margin: 0;
+}
+
+.muted {
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.badge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.actions,
+.stack,
+.manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+}
+
+.primary {
+  background: #2563eb;
+  color: white;
+}
+
+.safe {
+  background: #15803d;
+}
+
+.danger {
+  background: #b91c1c;
+  color: white;
+}
+
+.choice {
+  background: #1e293b;
+  color: white;
+  text-align: left;
+}
+
+.ghost {
+  background: transparent;
+  color: #94a3b8;
+}
+
+.manual {
+  flex-direction: row;
+}
+
+.manual input,
+textarea {
+  flex: 1;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: white;
+  padding: 0.75rem;
+}
+
+textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.status {
+  color: #86efac;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.severity-extreme {
+  border-top: 4px solid #ef4444;
+}
+
+.severity-severe {
+  border-top: 4px solid #f97316;
+}
+
+.severity-moderate {
+  border-top: 4px solid #eab308;
+}
+
+.severity-minor {
+  border-top: 4px solid #22c55e;
+}

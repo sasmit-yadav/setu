@@ -74,6 +74,10 @@ hidden (reads as "we didn't check").
 > the original one-row-per-channel shape (`bool_or(...) GROUP BY channel_id`)
 > for code that wants that convenience shape, but any UI rendering a specific
 > unsupported rung must read the tier table directly to get the right reason.
+>
+> **CI enforcement:** `scripts/check_channel_capability.py` imports every
+> adapter class_path from the DB and asserts its boolean tier flags match
+> `channel_capability_tier`. Runs green locally and in `.github/workflows/ci.yml`.
 
 ### 2.3 Human attestation is never digital delivery evidence
 
@@ -197,11 +201,25 @@ Space) so `torch`/`transformers` never load inside the API process. Two
 endpoints: `/embed` (dedup clustering) and `/translate` (IndicTrans2). Not
 started yet — no ML code exists in this repo.
 
-### 3.4 Frontend — not yet started
+### 3.4 Frontend — citizen PWA shipped; console not started
 
-Two apps planned: `web/console` (ops console, dark-first, dense) and
-`web/citizen` (PWA, light-first, offline-capable). Directory skeletons exist;
-no code yet.
+| App | Path | Status |
+|---|---|---|
+| Citizen PWA | `web/citizen/` | ✅ MVP — Vite + React + Workbox service worker |
+| Officer console | `web/console/src/` | ⚪ empty — next build priority |
+
+**Citizen PWA (`web/citizen/`):** offline-capable alert viewer and response
+flow. All runtime tuning (PWA cache timeouts, BackgroundSync retention,
+`response.free_text_max_chars`) comes from `GET /api/v1/public/config` —
+no hardcoded fallbacks in `App.tsx` or `sw.ts` (enforced by
+`scripts/check_pwa_config.py` in CI). Ed25519 verify key from env
+(`VITE_ALERT_SIGNING_PUBKEY_B64`) or `GET /api/v1/public/signing-key`.
+Push notifications require Firebase + VAPID (blocked — manual delivery ID
+works for dev). Dev server proxies `/api` → `localhost:8000` in
+`vite.config.ts` only — not a production config path.
+
+**Officer console:** planned dark-first ops UI for compose → preview →
+validate → approve → dispatch. Backend routes exist; no React code yet.
 
 ### 3.5 Local infrastructure
 
@@ -401,7 +419,7 @@ this is expected (down-migrations are destructive by design), not a bug.
 | `01_channels.sql` | 8 channels, 13 escalation-policy rows across 4 severities | 8 + 13 |
 | `02_channel_capability.sql` | `channel_capability_tier`, 4 tiers × 8 channels | 32 |
 | `03_alert_sources.sql` | 6 alert sources (usgs, gdacs, thunderstorm_nowcast, manual, sachet, imd — last two disabled) | 6 |
-| `04_app_config.sql` | every threshold, keyed and noted | 71 |
+| `04_app_config.sql` | every threshold, keyed and noted | 114 |
 | `05_relay_nodes.sql` | 6 demo relay nodes — **currently placeholder ciphertext**, real geometry join | 6 (was 0 until §5.4's geometry load) |
 
 `scripts/verify_seeds.py` asserts real counted minimums against the database
@@ -429,7 +447,7 @@ Windows is its own project. `psycopg` + PostGIS's `ST_GeomFromGeoJSON` does
 everything `ogr2ogr` would have. `scripts/run_geometry_pipeline.py`
 orchestrates the correct order.
 
-**Current state, locally (not yet pushed to Neon — see §5.6):** `admin_unit`
+**Current state, locally (Neon copy in progress via `neon-bootstrap` — see §5.6):** `admin_unit`
 has 6,822 ADM3 rows (nationwide) + 1,480 ADM5 rows (Wayanad + Palghar), all
 8,302 with `population` set. `safe_zone` has 281 real rows from OSM Overpass
 (151 hospitals, 84 schools, 32 community centres, 14 other). `relay_node`
@@ -539,24 +557,313 @@ feature-set upgrade, no redesign" promise.
 The downloaded global file (`data/raw/cell_towers_global.csv.gz`, 116MB) is
 gitignored along with the rest of `data/raw/`.
 
-## 5.6 Local vs. Neon — schema matches, data doesn't yet
+## 5.6 Local vs. Neon — schema matches; geometry bootstrap in progress
 
-Local Docker Postgres and Neon are **not in the same state**, and it's worth
-being explicit about exactly where they diverge so nobody assumes one from
-the other:
+Local Docker Postgres and Neon are **not always in the same state**. As of
+the last verification:
 
 | | Local (Docker, port 5433) | Neon (`.env.neon`) |
 |---|---|---|
-| Migrations `0001`–`0012` | ✅ applied, round-tripped | ✅ applied, round-tripped (verified separately) |
-| Seed files `01`–`04` (channels, capability, sources, config) | ✅ applied | ✅ applied |
-| `05_relay_nodes.sql` | ✅ 6 real rows (geometry exists) | Ran, but **inserted 0 rows** — Neon's `admin_unit` is still empty, so the seed's own `IF wayanad_unit IS NULL` guard correctly no-op'd |
-| `admin_unit` / `safe_zone` / `unit_features` geometry | ✅ loaded (§5.4) | ❌ empty — not pushed yet |
+| Migrations `0001`–`0012` | ✅ applied, round-tripped | ✅ applied, round-tripped |
+| Seed files `01`–`04` | ✅ applied | ✅ applied (112→114 config via upsert) |
+| `05_relay_nodes.sql` | ✅ 6 rows (geometry exists) | ⏳ depends on geometry load completing |
+| `admin_unit` ADM3+ADM5 | ✅ 8,302 rows | ✅ 8,302 rows (neon-bootstrap verified ADM load) |
+| `population` on units | ✅ all ADM3 set | ✅ 6,822/6,822 (neon-bootstrap) |
+| `safe_zone` / `unit_features` | ✅ 281 / 1,375 terrain | ⏳ loading via `neon-bootstrap` |
+| Consented recipients (CSV) | ✅ ~122 | ❌ run `import-enrollment` after bootstrap |
 
-**Practical consequence:** any query against Neon that assumes real
-geometry (reachability views, vulnerability views, relay coverage) will
-currently return empty results — not because the views are broken, but
-because Neon has no `admin_unit` rows to join against yet. This is tracked
-as an open task in `TASK.md`, not silently left implicit here.
+**Bootstrap commands:**
+
+| Command | What it does |
+|---|---|
+| `python run.py seed-config` | Idempotent upsert of all `app_config` keys |
+| `python run.py data-bootstrap` | Local: migrate + config + enrollment CSV + verify |
+| `python run.py neon-bootstrap` | Neon: migrate + config + full geometry pipeline + verify |
+| `python run.py verify-data` | Row-count sanity checks (units, config, channels, recipients) |
+
+**`.env.neon` gotcha:** values must **not** be wrapped in quotes — bash
+`source` passes quotes literally into `DATABASE_URL`, breaking asyncpg.
+`scripts/env_loader.py` strips quotes for Python loads; use unquoted URLs in
+the file itself for shell-based tooling.
+
+**Practical consequence:** queries against Neon that join geometry-dependent
+views before bootstrap completes return empty — not because views are broken,
+but because rows aren't loaded yet.
+
+---
+
+## 8. Application layer — as built (roadmap Day 4–6 slice)
+
+This section tracks **running code**, not the design spec. Updated whenever
+a module ships. Last verified: **37/37 pytest green** against local Docker
+(Postgres `:5433`, Redis `:6379`).
+
+### 8.1 FastAPI surface (`services/api/`)
+
+| Method | Path | Module | Status |
+|---|---|---|---|
+| GET | `/health` | `routers/health.py` | ✅ |
+| POST | `/api/v1/alerts` | composer create draft | ✅ |
+| GET | `/api/v1/alerts` | list (limit from `api.list_default_limit`) | ✅ |
+| GET | `/api/v1/alerts/{id}` | alert detail | ✅ |
+| POST | `/api/v1/alerts/{id}/preview` | exposure preview | ✅ |
+| POST | `/api/v1/alerts/{id}/validate` | F1 quality gate | ✅ |
+| POST | `/api/v1/alerts/{id}/approve` | F3 dual authorization | ✅ |
+| POST | `/api/v1/alerts/{id}/dispatch` | Delivery fan-out + governance guards | ✅ |
+| POST | `/api/v1/alerts/{id}/new-version` | F2 draft vN+1 | ✅ |
+| GET | `/api/v1/units/{id}/reachability` | D7f view | ✅ |
+| GET | `/api/v1/units/{id}/vulnerability` | D8f view | ✅ |
+| GET | `/api/v1/units/{id}/risk` | D12f risk + factors | ✅ |
+| GET | `/api/v1/alerts/{id}/assurance` | B8 assurance ladder | ✅ |
+| GET | `/api/v1/alerts/{id}/deliveries` | Delivery rows + assurance level | ✅ |
+| POST | `/api/v1/ack` | Citizen acknowledgement (idempotent) | ✅ |
+| POST | `/api/v1/deliveries/{id}/receipt` | B8 SW receipt (nonce-checked) | ✅ |
+| POST | `/api/v1/response` | C6 structured citizen response | ✅ |
+| GET | `/api/v1/assistance` | D11f queue (priority-ordered) | ✅ |
+| GET | `/api/v1/assistance/{id}` | D11f case detail + factors | ✅ |
+| POST | `/api/v1/assistance/{id}/assign` | D11f assignment | ✅ |
+| GET | `/api/v1/incidents/{id}` | F2 version chain | ✅ |
+| GET | `/api/v1/incidents/{id}/timeline` | D10f audit timeline | ✅ |
+| GET | `/api/v1/public/config` | PWA + citizen runtime keys | ✅ |
+| GET | `/api/v1/public/signing-key` | Ed25519 public key (b64) | ✅ |
+| GET | `/api/v1/citizen/deliveries/{id}` | Offline-capable alert payload | ✅ |
+| POST | `/api/v1/admin/recipients/import` | E4 CSV enrollment | ✅ |
+| POST | `/webhooks/sms-inbound` | SMS keyword REGISTER/STOP | ✅ |
+| POST | `/webhooks/sms-status` | Twilio delivery status | ✅ |
+| POST | `/webhooks/ivr-status` | IVR DTMF → citizen response | ✅ |
+
+CORS allows `http://localhost:5173` for citizen PWA dev (`services/api/main.py`).
+
+**Env-gated live channels:** FCM, SMS, IVR, email adapters send for real when
+credentials are present; otherwise worker catches `ChannelUnavailable` and
+uses `SimulatedCarrierAdapter`. Firebase/Twilio/Brevo still blocked for most
+deployments — sim path is honest, not silent.
+
+**Not wired yet:** B10 peer relay receipt, B9 full human-relay call flow,
+PDF audit report, officer console UI, E1 RBAC on mutating routes.
+
+**Process entry points** (via `python run.py …`):
+
+| Task | Module |
+|---|---|
+| `api` | `uvicorn services.api.main:app` |
+| `worker` | `services.delivery.worker` (Redis Streams consumer) |
+| `ingest` | `services.ingestion.scheduler` (USGS + GDACS pollers) |
+| `seed-config` | `scripts/upsert_app_config.py` (idempotent config refresh) |
+| `data-bootstrap` | `scripts/bootstrap_local_data.py` |
+| `neon-bootstrap` | `scripts/bootstrap_neon.py` |
+| `neon-geometry` | `scripts/push_geometry_to_neon.py` |
+| `import-enrollment` | `scripts/import_enrollment_csv.py` |
+| `verify-data` | `scripts/verify_data_layer.py` |
+| `citizen-dev` | Vite dev server `:5173` |
+
+### 8.2 Ingestion (`services/ingestion/`)
+
+- **`UsgsAdapter`** — zero-auth GeoJSON; magnitude→severity from
+  `ingest.usgs.mag_*` config keys; `estimated_onset_at` always NULL
+  (earthquakes have no forecast lead time — by physics, not omission).
+- **`GdacsAdapter`** — uses `/geteventlist/SEARCH`, **not** `/MAP`
+  (the spec's MAP endpoint 400s without `eventtype`; fixed in
+  `data/seeds/03_alert_sources.sql`).
+- **`poller.py` / `scheduler.py`** — APScheduler loop; quarantine on
+  parse/HTTP failures; incident auto-open on first sighting.
+- **`incident_linker.py`** — links ingested events to open incidents /
+  creates new incident rows before persist.
+- **Fixtures:** `tests/fixtures/usgs_feature.json`, `gdacs_search.json`.
+
+### 8.3 Delivery engine (`services/delivery/`)
+
+- **`state_machine.py`** — 8-state transactional lifecycle with
+  `FOR UPDATE` transitions and audit append.
+- **`assurance.py`** — append-only `delivery_event` writer;
+  `acknowledged` tier also calls `transition(state=acknowledged)`.
+  Metadata stored as JSON string for asyncpg jsonb compatibility.
+- **`engine.py`** — dispatch path: approvals → quality gate →
+  **F2 supersede** (if `supersedes_alert_id` set) → create deliveries →
+  Redis `XADD` fan-out. Redis `SET NX PX` supersede lock per incident
+  (`versioning.supersede_lock_ms`).
+- **`worker.py`** — consumer group; real adapters when creds present;
+  `ChannelUnavailable` → honest sim fallback (not silent success).
+- **Channel adapters:** `SimulatedCarrierAdapter` always available;
+  `FcmAdapter`, `SmsAdapter`, `IvrAdapter`, `EmailAdapter` are real
+  when env creds exist; siren/human_relay/community_relay remain stubs
+  pending hardware/Twilio/B10 spike.
+
+### 8.4 Governance (`services/governance/`)
+
+- **`quality_gate.py`** — all **6/6 F1 rules** live:
+  `geometry_non_empty`, `expiry_set`, `target_count_plausible`,
+  `escalation_policy_exists`, `translation_exists`, `target_area_plausible`.
+  Translation requirement is **state-keyed** via `case_study.bbox.KL` /
+  `.MH` and `quality_gate.required_lang_for_{severity}.{state}` — a single
+  global `'ml'` floor would incorrectly block Palghar (Marathi) alerts.
+  `target_area_plausible` returns **`warn`**, not `fail`, above
+  `quality_gate.max_target_area_km2`.
+- **`approvals.py`** — quorum by severity; `authoritative_source`
+  auto-approval for `is_authoritative` feeds (USGS/GDACS).
+- **`versioning.py`** — `create_new_version()` drafts vN+1;
+  `supersede_predecessor()` on dispatch marks old version `superseded` and
+  expires `pending`/`queued` deliveries when
+  `versioning.cancel_inflight_on_supersede=true`.
+
+### 8.5 Citizen response, enrollment & assistance (C6 + E4 + D11f)
+
+- **`citizen_response.py`** — idempotent `POST /response` handler;
+  `CHECK (location IS NULL OR location_consent=true)` enforced at DB;
+  writes `delivery_event` tier `citizen_response`; emits
+  `citizen.response_received` audit event. Free-text cap from
+  `response.free_text_max_chars`.
+- **`assistance_queue.py`** — auto-opens `assistance_case` for
+  `trapped|medical|unable_to_evacuate|other`; priority from
+  `priority.py` weighted sum (Rule 10 — full factors stored in
+  `priority_factors` JSONB). List limit from `api.list_default_limit`.
+- **`services/enrollment/`** — `phone_hash.py` (HMAC dedupe),
+  `csv_import.py` (dry-run → preview_token → live), `sms_keyword.py`
+  (REGISTER/STOP with rate limit from config).
+- Proximity normalisation uses `assistance.proximity_max_m` against
+  unit centroid or consented citizen point.
+
+### 8.6 Audit timeline (D10f)
+
+- **`audit/ledger.py`** — hash-chained append-only events.
+- **`audit/timeline.py`** — `GET /incidents/{id}/timeline` is a straight
+  `SELECT … ORDER BY occurred_at` — no second log, no materialised view.
+
+### 8.7 CI & quality gates
+
+- **`.github/workflows/ci.yml`** — PostGIS + Redis services, migrate,
+  seed, ruff, `check_no_hardcoding.py`, `check_pwa_config.py`,
+  `check_env_example.py`, `check_channel_capability.py`, unit + property tests.
+- **`scripts/upsert_app_config.py`** — parses `04_app_config.sql` and
+  upserts all keys (`ON CONFLICT DO UPDATE`) so config can be refreshed
+  without wiping channels/sources on an existing DB.
+- **Re-seed note:** `python run.py seed` still fails on duplicate
+  `channel` rows if the DB already has data; use `seed-config` for
+  config-only refresh, or `db-reset` for a clean slate.
+
+### 8.8 Config keys added beyond Part 21 prose
+
+| Key | Why |
+|---|---|
+| `ingest.*`, `delivery.xread_*`, `geo.km_to_meters` | Ingestion poller + worker tuning |
+| `case_study.bbox.KL` / `.MH` | F1 translation rule — south,west,north,east order |
+| `assistance.proximity_max_m` | D11f proximity factor normalisation |
+| `response.free_text_max_chars` | C6 Pydantic cap + PWA textarea maxLength |
+| `pwa.*` | Service worker NetworkFirst timeout + cache + BackgroundSync retention |
+| `api.idempotency_ttl_seconds` | Dispatch idempotency replay window |
+| `api.version_conflict_retry_after_ms` | Retry-After when supersede lock held |
+| `api.list_default_limit` | Default pagination when `?limit=` omitted |
+| `geometry.admin_unit_batch_size` | Loader INSERT batch size |
+| `assistance.default_vulnerability` | Fallback when terrain feature NULL |
+| `risk.top_factors_limit` | Cap on risk factor rows returned |
+| `alert.manual.default_radius_km` | Point-alert buffer when no polygon |
+| `enrollment.*` | CSV caps, phone digit lengths, SMS keywords/replies |
+| `ivr.dtmf.*`, `ivr.prompt.main` | Twilio Gather prompts and digit map |
+
+### 8.9 Hardcoding policy — what's allowed where
+
+**Rule:** operational thresholds, timeouts, caps, and policy defaults live
+in `app_config` (seeded by `04_app_config.sql`, refreshed via
+`python run.py seed-config`). Code reads them through `config_repo` (async
+API) or `scripts/db_config_sync.py` (sync loaders).
+
+**CI enforcement:**
+
+| Guard | Scope |
+|---|---|
+| `scripts/check_no_hardcoding.py` | `services/delivery`, `targeting`, `governance`, `response`, `enrollment`, `ingestion` — flags bare numeric literals in `Compare`/`BinOp` except `{0,1,-1,2,100}` and subscripts |
+| `scripts/check_pwa_config.py` | `web/citizen/src` — flags hardcoded PWA timeouts and `freeTextMax` defaults |
+| `scripts/check_channel_capability.py` | Adapter tier flags vs `channel_capability_tier` table |
+
+**Explicit exceptions (not bugs):**
+
+- **HTTP status codes** in `HTTPException(status_code=…)` — protocol constants.
+- **Bootstrap geometry scripts** — `load_terrain.py`'s `RUGGEDNESS_STD_CEILING_M`
+  is a *units-of-measurement* choice for the std-dev proxy, documented in-file;
+  the *policy* threshold is `vuln.terrain_ruggedness_ceiling` in `app_config`.
+- **Dev-only Vite proxy** — `vite.config.ts` `localhost:8000` for local API;
+  production builds use same-origin or env-based `apiBase()`.
+- **Test fixtures** — synthetic coordinates and buffers in `tests/`.
+- **SQL positional placeholders** — `$1`, `$4` in queries are not literals.
+
+**Citizen PWA:** service worker registers API caching routes only after
+`GET /api/v1/public/config` succeeds — no in-code fallback for
+`pwa.network_timeout_seconds` etc. App UI waits for config before enabling
+free-text `maxLength`.
+
+## 8.1 Five bugs a green test suite did not catch
+
+All 37 tests passed while live ingestion was completely broken. Every bug
+below was found by running the real system against the real database and the
+real feeds — not by reading code and not by running tests. Recorded because
+the *pattern* generalises, not just the fixes.
+
+**1. asyncpg returns `jsonb` as `str`, not `dict`.**
+`load_adapters()` did `dict(row["config"])` on `alert_source.config` and
+raised `dictionary update sequence element #0 has length 1; 2 is required`
+against the real DB. Fixture-based tests never saw it: they construct config
+dicts in Python, so the value never crosses the driver boundary. Fixed by
+registering a json/jsonb codec **centrally** in `services/api/db.py::connect()`
+— this affects every jsonb column in the schema (`channel.config`,
+`assistance_case.priority_factors` (Rule 10's stored inputs),
+`delivery_event.metadata`, `reach_prediction.features`), so fixing it at one
+call site would have left four others silently broken. `deps.py` and
+`tests/conftest.py` both now route through `connect()`, so **tests use the
+same connection path as production** — the divergence is what hid the bug.
+
+**2. Shared HTTP policy was never passed to adapters.**
+`ingest.http_timeout_s` / `ingest.http_not_modified_status` were correctly
+seeded in `app_config` (they are system-wide policy, not per-feed config) but
+the registry never injected them, so every adapter raised
+`missing 2 required positional arguments`. The registry now merges them in and
+filters by each adapter's actual `__init__` signature.
+
+**3. `alert_source` seed was not idempotent.**
+It used a bare `INSERT`, so re-running could never *correct* a drifted row.
+The database held a stale gdacs config pointing at `.../geteventlist/MAP`
+(which returns 400 `Eventtype is required`) while the seed file already had
+the correct `/SEARCH` URL. Now `ON CONFLICT (source_id) DO UPDATE` — a seed
+file that is the source of truth (Rule 3) must be able to repair drift.
+
+**4. `admin_unit.state_code` does not exist.**
+`incident_linker.generate_label()` queried `COALESCE(u.state_code, u.name)`.
+That column has never existed in any migration, so live USGS ingestion died
+with `UndefinedColumnError` — while unit tests, which never exercise labeling
+against a real schema, passed. Fixed to `ORDER BY u.level ASC` (prefer the
+coarser ADM3 sub-district over an ADM5 village), which recovers the intended
+"name it after the wider region" behaviour without the phantom column.
+
+**5. One broken adapter took down the entire registry.**
+`thunderstorm_nowcast` and `manual` were seeded `enabled=true` with no adapter
+module, so a `ModuleNotFoundError` on one killed the registry for *all*
+sources, including working ones. Two fixes: the registry now logs and skips an
+unbuildable adapter instead of raising, and the seed marks both rows
+`enabled=false` — `manual` is a **provenance, not a feed** (officer-composed
+alerts arrive via the composer API, never by polling), so it should never have
+been pollable at all.
+
+**Two further Rule-1 violations found in the same pass**, both invisible to
+the existing guard:
+
+- `services/api/routers/webhooks.py` hardcoded `gather_digits="1"`,
+  `gather_timeout="10"` as function defaults, silently ignoring the seeded
+  `ivr.gather_digits` / `ivr.gather_timeout_s` rows (the spec's own Part 38
+  violation E, reintroduced). `check_no_hardcoding.py` could not see it for
+  two reasons — it did not guard `services/api/`, and it only inspected
+  `Compare`/`BinOp` nodes, so a *default argument* was invisible. Both gaps
+  are now closed, and the strengthened guard was verified to actually fail on
+  a probe file reproducing the exact pattern before being trusted.
+- `PeerRelayAdapter` declared `supports_device_delivered=False` /
+  `supports_opened=False`, contradicting its seeded `channel_capability_tier`
+  rows. That is a **Rule 8 violation** — the product's central honesty claim —
+  caught by `check_channel_capability.py`, which is precisely why that guard
+  exists.
+
+**The generalisable lesson:** every one of these lived at a boundary the tests
+mocked away — the DB driver, the config table, the seed file, the live HTTP
+feed. Tests that construct their own inputs cannot catch a bug in how real
+inputs arrive. That is the argument for the integration run the roadmap
+requires, and for `conftest.py` using the production connection path.
 
 ---
 
@@ -587,9 +894,11 @@ loads inside the API process (§3.1's hard rule).
 
 ### 6.3 Neon / cloud database
 
-Nothing has touched a cloud database yet — everything above is local Docker
-only. The exact same migration round-trip needs to be re-run against Neon's
-pooled + direct URLs once that account exists.
+Neon is **set up and migration-verified** (§5.6). Full geometry bootstrap
+runs via `python run.py neon-bootstrap` (`.env.neon`). As of last check:
+ADM3 (6,822) + ADM5 (1,480) + population loaded; terrain/safe zones/verify
+may still be running on long jobs. Re-run `python run.py verify-data` with
+`SETU_ENV_FILE=.env.neon` after bootstrap completes.
 
 ---
 
@@ -597,47 +906,31 @@ pooled + direct URLs once that account exists.
 
 ```
 setu/
-├── CLAUDE.md            binding project rules (no AI attribution in commits, secrets discipline)
+├── CLAUDE.md            binding project rules
 ├── TASK.md              status-based task tracker — "what do I do next"
 ├── services/
-│   ├── api/            settings.py (env config, Part 25-style) — no route code yet
-│   ├── delivery/        channels/  (empty — adapters not written)
-│   ├── ingestion/       adapters/  (empty)
-│   ├── governance/      rules/     (empty)
-│   ├── response/        (empty)
-│   ├── enrollment/      (empty)
-│   ├── ml/              (empty — no hosting decision made yet)
-│   ├── audit/           (empty)
-│   ├── crypto/          (empty — Ed25519 signing lives here, not written)
-│   └── targeting/       (empty)
+│   ├── api/             main.py, deps.py, schemas.py, config_repo.py, db.py
+│   │   └── routers/     alerts, health, units, response, assistance, incidents,
+│   │                    public, citizen, enrollment, webhooks, ack, receipts
+│   ├── delivery/        engine, state_machine, assurance, worker, keys
+│   │   └── channels/    base + simulated + fcm/sms/ivr/email (env-gated) + stubs
+│   ├── ingestion/       usgs/gdacs adapters, poller, scheduler, normalize, persist, incident_linker
+│   ├── governance/      quality_gate (6/6), approvals, versioning, composer
+│   ├── response/        citizen_response, assistance_queue, priority
+│   ├── enrollment/      phone_hash, csv_import, sms_keyword
+│   ├── targeting/       geo.py, escalation.py
+│   ├── audit/           ledger.py, timeline.py
+│   ├── crypto/          alert_signing.py (Ed25519 — server side)
+│   └── ml/              (not started — hosting TBD)
 ├── web/
-│   ├── console/src/     (empty)
-│   └── citizen/src/     (empty)
-├── packages/tokens/src/ (empty)
-├── data/
-│   ├── seeds/           01-05 (§5.2) — all applied, real data (§5.4)
-│   ├── snapshots/       (empty — no demo snapshot yet)
-│   └── raw/             gitignored. Currently holds real downloaded data:
-│                        ind_adm3.geojson, ind_adm5.geojson, ind_pop.tif,
-│                        dem/*.tif (4 tiles), cell_towers_global.csv.gz
-├── migrations/          alembic; versions/0001-0012 (§5.1) — applied to
-│                        local Docker AND Neon (§5.6)
-├── tests/                unit/ property/ contract/ integration/ e2e/ fixtures/  (all empty)
-├── scripts/
-│   ├── gen_secrets.py, wait_for_db.py, guard_local_only.py,
-│   │   verify_seeds.py, doctor.py          — bootstrap/ops
-│   ├── verify_data_sources.py              — Gate 1: hits all 15 live sources
-│   ├── fetch_data.sh                       — downloads geometry/population/DEM
-│   └── load_admin_units.py, load_population.py, load_terrain.py,
-│       load_safe_zones.py, load_towers.py,
-│       run_geometry_pipeline.py            — §5.4/§5.5's geometry pipeline
-├── infra/               docker-compose.yml (Postgres on port 5433, not 5432 — §4.1)
-├── docs/                SETU_MASTER_v3.0_MERGED.md (design spec, read-only reference),
-│                        IMPLEMENTATION.md (this file)
-├── run.py               task runner (Makefile replacement, §4.2)
-├── requirements.txt      pinned, 169 packages
-├── alembic.ini
-├── .env.example          committed template
-├── .env                  gitignored — local Docker credentials
-└── .env.neon             gitignored — Neon credentials, kept separate (§5.6)
+│   ├── console/src/     (empty — React ops console)
+│   └── citizen/         PWA — Vite + React + Workbox (src/sw.ts)
+├── data/seeds/          01–05 applied locally
+├── migrations/          0001–0012 applied locally + Neon (schema)
+├── tests/               unit/ + property/ + fixtures/ — 37 tests green
+├── scripts/             bootstrap, CI guards, geometry pipeline, upsert_app_config, db_config_sync
+├── infra/               docker-compose.yml (Postgres :5433, Redis, MailHog)
+├── .github/workflows/   ci.yml
+├── run.py               task runner (Makefile replacement)
+└── docs/                SETU_MASTER (spec), IMPLEMENTATION.md (this file), TASK.md
 ```

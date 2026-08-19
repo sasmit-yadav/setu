@@ -37,8 +37,13 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import psycopg
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def _fix_windows_console_encoding() -> None:
@@ -174,7 +179,8 @@ def main() -> int:
     p.add_argument("--bbox", type=parse_bbox, action="append", default=None,
                     help="Required for --level 5 (Trap 4). Repeatable. Format: south,west,north,east. "
                          "e.g. --bbox 11.2,75.7,12.0,76.5 --bbox 19.3,72.5,20.1,73.3")
-    p.add_argument("--batch-size", type=int, default=500)
+    p.add_argument("--batch-size", type=int, default=None,
+                    help="Override geometry.admin_unit_batch_size from app_config")
     args = p.parse_args()
 
     if args.level == 5 and not args.bbox:
@@ -193,7 +199,13 @@ def main() -> int:
         print(f"REFUSING: {path} does not exist. Run scripts/fetch_data.sh first.", file=sys.stderr)
         return 1
 
-    load(path, args.level, args.bbox, args.batch_size)
+    batch_size = args.batch_size
+    if batch_size is None:
+        from scripts.db_config_sync import get_int
+
+        batch_size = get_int("geometry.admin_unit_batch_size")
+
+    load(path, args.level, args.bbox, batch_size)
     return 0
 
 

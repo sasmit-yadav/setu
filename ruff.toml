@@ -1,0 +1,22 @@
+[lint.per-file-ignores]
+# FastAPI's Depends(...) in a signature default is the framework's documented
+# dependency-injection idiom, not a mutable-default bug.
+"services/api/routers/*.py" = ["B008"]
+
+# scripts/ are operational tools, not library code, and a few rules fight that:
+#   PLW1510  subprocess.run without check= — these scripts inspect returncode
+#            themselves to print a useful message instead of a traceback.
+#   BLE001   broad except — doctor.py/verify_data_sources.py are REPORTS whose
+#            entire job is to catch anything and render it as a finding.
+#   SIM117   nested with — kept separate where the outer context is a DB
+#            connection and the inner is a raster file; merging them reads worse.
+#   ISC004   implicit string concat inside a collection — used for readable
+#            multi-line task descriptions.
+#   RUF046   int() around an already-int — kept as an explicit narrowing
+#            assertion when the value came from a DB driver.
+"scripts/*.py" = ["PLW1510", "BLE001", "SIM117", "ISC004", "RUF046"]
+
+# The db_conn fixture catches broad Exception on purpose: ANY connection
+# failure should skip the integration tests with a readable reason, not error
+# the whole run with a driver traceback.
+"tests/conftest.py" = ["BLE001"]
