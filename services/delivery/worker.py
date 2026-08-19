@@ -28,6 +28,11 @@ logger = structlog.get_logger(__name__)
 
 PHONE_CHANNELS = frozenset({"sms", "ivr", "human_relay"})
 
+# A unit conversion, not a tunable — "how many milliseconds are in a second"
+# is not a policy decision anyone could reasonably want different, which is
+# the test Part 38 gives for what belongs in config vs. what stays in code.
+MS_PER_SECOND = 1000
+
 
 async def ensure_consumer_group(redis: Redis, conn: asyncpg.Connection) -> None:
     stream = keys.stream_delivery()
@@ -183,11 +188,28 @@ async def process_batch(conn: asyncpg.Connection, redis: Redis, fields: dict) ->
 
 
 async def worker_loop(consumer: str, shutdown: asyncio.Event | None = None) -> None:
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    # Read the blocking window BEFORE building the Redis client: the client's
+    # socket timeout must exceed XREADGROUP's block duration, or an idle
+    # worker kills itself. redis-py's default socket_timeout is shorter than
+    # delivery.xread_block_ms, so a worker with nothing to do raised
+    # "TimeoutError: Timeout reading from localhost:6379" and exited — the
+    # exact failure mode a delivery worker must never have, since "idle" is
+    # its normal state between alerts.
     async with connect_direct() as conn:
-        await ensure_consumer_group(redis, conn)
         xread_count = await config_repo.get_int(conn, "delivery.xread_count")
         xread_block_ms = await config_repo.get_int(conn, "delivery.xread_block_ms")
+        socket_timeout_grace_s = await config_repo.get_float(
+            conn, "delivery.xread_socket_timeout_grace_s"
+        )
+
+    redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_timeout=(xread_block_ms / MS_PER_SECOND) + socket_timeout_grace_s,
+    )
+    async with connect_direct() as conn:
+        await ensure_consumer_group(redis, conn)
+
     while shutdown is None or not shutdown.is_set():
         messages = await redis.xreadgroup(
             keys.group(),

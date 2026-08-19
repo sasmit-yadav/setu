@@ -32,7 +32,8 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('time.seconds_per_minute', '60', 'seconds', 'Minutes to seconds conversion'),
   ('http.status_client_error_min', '400', 'http', 'Outbound HTTP responses at or above this are failures'),
   ('delivery.xread_count', '10', 'messages', 'Redis XREADGROUP batch count'),
-  ('delivery.xread_block_ms', '5000', 'ms', 'Redis XREADGROUP block timeout');
+  ('delivery.xread_block_ms', '5000', 'ms', 'Redis XREADGROUP block timeout'),
+  ('delivery.xread_socket_timeout_grace_s', '5', 'seconds', 'Added to xread_block_ms to derive the Redis client socket timeout. MUST be > 0: if the socket timeout is not longer than the blocking read, an IDLE worker times out and exits, and idle is a delivery worker''s normal state between alerts.');
 
 -- ═══ Simulated carrier profile (§8.5 — values in config, not code) ═══
 INSERT INTO app_config (key, value, unit, note) VALUES

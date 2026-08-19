@@ -26,18 +26,27 @@ async def transition(
     if to not in LEGAL[frm]:
         raise IllegalTransition(frm, to)
     ts_col = TIMESTAMP_COL[to]
+    # delivery.failed_reason is a real column and must actually be written.
+    # It was previously only ever recorded inside the audit payload, so every
+    # failed delivery showed failed_reason = NULL while the ledger knew
+    # exactly why. Rule 4 says every figure a user sees resolves to a stored
+    # fact — "failed, reason unknown" on a console is that rule breaking,
+    # even though the ledger held the answer all along.
+    reason = ctx.get("reason")
+    set_reason = to in (State.failed, State.expired) and reason is not None
+
+    assignments = ["state = $2"]
+    params: list[Any] = [delivery_id, to.value]
     if ts_col:
-        await conn.execute(
-            f"UPDATE delivery SET state = $2, {ts_col} = now() WHERE id = $1",
-            delivery_id,
-            to.value,
-        )
-    else:
-        await conn.execute(
-            "UPDATE delivery SET state = $2 WHERE id = $1",
-            delivery_id,
-            to.value,
-        )
+        assignments.append(f"{ts_col} = now()")
+    if set_reason:
+        params.append(str(reason))
+        assignments.append(f"failed_reason = ${len(params)}")
+
+    await conn.execute(
+        f"UPDATE delivery SET {', '.join(assignments)} WHERE id = $1",
+        *params,
+    )
     payload = {"from": frm.value, "to": to.value, "attempt": row["attempt"], **ctx}
     await append_audit(
         conn,
