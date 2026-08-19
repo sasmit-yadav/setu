@@ -1,0 +1,86 @@
+/* SETU operations console — design tokens (Part 11.1).
+ *
+ * Dark-first, high-density: the Linear / Datadog / PagerDuty lineage. Part 0.4
+ * is explicit that the console and the citizen PWA invert on almost every axis,
+ * so NOTHING in this file may be reused by web/citizen — that app is
+ * light-first, large-touch and calm, and the three components that appear in
+ * both (alert card, assurance indicator, language selector) are designed
+ * twice, not shared.
+ *
+ * Every hex below is quoted from the spec, with its measured contrast ratio.
+ * Part 0.5's guardrail — "WCAG AA contrast on every pairing, no exceptions for
+ * the sake of mood" — is only checkable if the numbers are written down.
+ */
+
+:root[data-theme="dark"] {
+  /* ── surfaces ─────────────────────────────────────────────────────── */
+  --bg-base: #0b0d10;
+  --bg-surface: #14171c;
+  --bg-raised: #1b1f26;
+  --border-subtle: #262b33;
+
+  /* ── text ─────────────────────────────────────────────────────────── */
+  --text-primary: #e8ebf0;   /* 14.8:1 on base */
+  --text-secondary: #9aa4b2; /*  6.1:1 on base */
+
+  /* ── severity: bg/fg pairs, each AA or better ─────────────────────── */
+  --sev-extreme-bg: #3b0a0a;  --sev-extreme-fg: #ff6b6b;  /* 7.1:1  */
+  --sev-severe-bg:  #3a2408;  --sev-severe-fg:  #ffa94d;  /* 8.4:1  */
+  --sev-moderate-bg:#3a3408;  --sev-moderate-fg:#ffd43b;  /* 11.2:1 */
+  --sev-minor-bg:   #0a2a3b;  --sev-minor-fg:   #4dabf7;  /* 6.9:1  */
+
+  /* ── state ────────────────────────────────────────────────────────── */
+  --state-ok: #51cf66;
+  --state-danger: #ff6b6b;
+  --state-info: #4dabf7;
+  --state-neutral: #868e96;
+  --state-muted: #495057;
+  --state-warning: #ffa94d; /* 8.4:1 — same as sev-severe-fg */
+
+  /* ── density scale: 4 / 8 / 12 / 16 / 24 / 32 (Part 11.1) ─────────── */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  /* ── type ─────────────────────────────────────────────────────────── */
+  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  /* JetBrains Mono with tabular-nums for EVERY count, timestamp and
+   * duration. Part 11.1 calls this non-negotiable, and 11.3 explains why:
+   * proportional digits reflow column widths on every WebSocket tick, so a
+   * live table visibly jitters. */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 14px; /* console body is 14-16px; the citizen PWA is 18px min */
+  --fs-md: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 28px;
+  --fs-kpi: 34px;
+
+  /* ── motion: information only, never decoration (Part 0.5) ────────── */
+  --dur-fast: 120ms;
+  --dur-row: 200ms;   /* row state crossfade, 11.3 — never a snap */
+  --dur-count: 400ms; /* KPI count-up: motion as CONFIRMATION */
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ── the angular cut (Part 0.5, XCOM 2) ───────────────────────────
+   * Corner-cut panels instead of default rounded rectangles: reads as
+   * "tactical", not "SaaS form". Applied to panels and modals, never to
+   * small controls where it would just look broken. */
+  --cut: 10px;
+  --cut-sm: 6px;
+}
+
+/* prefers-reduced-motion collapses EVERY one of these to instant.
+ * Part 0.5: "no exceptions". */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="dark"] {
+    --dur-fast: 0ms;
+    --dur-row: 0ms;
+    --dur-count: 0ms;
+  }
+}

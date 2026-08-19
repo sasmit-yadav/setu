@@ -1,0 +1,289 @@
+/* Layout. Dense but CALM — the Linear reference (Part 0.4.2): "study the
+ * restraint: muted borders, ONE accent, generous line-height inside a tight
+ * grid, and keyboard-first everything."
+ *
+ * The tight grid comes from the 4/8/12/16/24/32 density scale; the calm comes
+ * from using --border-subtle everywhere and reserving saturated colour for
+ * severity and state, which are the only things that should pull the eye.
+ */
+
+/* ── shell ────────────────────────────────────────────────────────── */
+.shell { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.topbar__brand { display: flex; align-items: center; gap: var(--s2); }
+.topbar__nav { display: flex; gap: var(--s1); }
+.topbar__right { margin-left: auto; display: flex; align-items: center; gap: var(--s3); }
+.topbar__hint { display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--fs-xs); }
+.topbar__user { font-size: var(--fs-sm); color: var(--text-secondary); }
+
+.navlink {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--s1) var(--s3);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.navlink.is-active { color: var(--text-primary); border-color: var(--border-subtle); background: var(--bg-raised); }
+
+.shell__body { flex: 1; overflow: auto; }
+
+.screen { padding: var(--s5); display: flex; flex-direction: column; gap: var(--s4); max-width: 1500px; }
+.screen__head { display: flex; align-items: center; gap: var(--s3); }
+.screen__head h2 { font-size: var(--fs-lg); }
+
+/* ── buttons ──────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  /* 44px minimum touch target is a CITIZEN-app rule (Part 0.4.7); the console
+   * is mouse+keyboard at a desk and uses the tight density scale instead. */
+  min-height: 32px;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.btn:hover:not(:disabled) { border-color: var(--state-neutral); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn--ghost { background: transparent; }
+.btn--primary { background: var(--sev-minor-bg); border-color: var(--sev-minor-fg); color: var(--sev-minor-fg); }
+.btn--danger { background: var(--sev-extreme-bg); border-color: var(--sev-extreme-fg); color: var(--sev-extreme-fg); }
+.btn--approve { background: var(--bg-raised); border-color: var(--state-ok); color: var(--state-ok); }
+
+kbd {
+  padding: 1px var(--s1);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+/* ── KPI strip ────────────────────────────────────────────────────── */
+.kpis { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s3) var(--s4);
+  min-width: 150px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--state-neutral);
+}
+.kpi__label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.kpi__value { font-size: var(--fs-kpi); font-weight: 600; line-height: 1.05; }
+.kpi__note { font-size: var(--fs-xs); line-height: 1.35; }
+
+/* ── table (Linear list view) ─────────────────────────────────────── */
+.table { display: flex; flex-direction: column; overflow: hidden; }
+.table__head,
+.table__row {
+  display: grid;
+  /* FIXED column widths: 11.3 requires no layout shift on update. Combined
+   * with tabular-nums, a live tick cannot make the grid jump. */
+  grid-template-columns: 64px 108px 1fr 190px 110px 72px;
+  gap: var(--s3);
+  align-items: center;
+  padding: var(--s2) var(--s4);
+  text-align: left;
+}
+.table__head {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.table__body { display: flex; flex-direction: column; content-visibility: auto; }
+.table__row {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+  /* Row state changes crossfade, never snap (11.3). */
+  transition: background var(--dur-row) var(--ease);
+}
+.table__row:hover { background: var(--bg-raised); }
+.table__headline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table__empty { padding: var(--s4); }
+
+.status { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.status--active { color: var(--state-ok); }
+.status--draft { color: var(--state-neutral); }
+.status--superseded { color: var(--state-muted); }
+.status--cancelled { color: var(--state-danger); }
+
+/* ── detail ───────────────────────────────────────────────────────── */
+.alert__body { color: var(--text-secondary); max-width: 80ch; margin: 0; }
+.detail__cols { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: var(--s4); align-items: start; }
+.detail__col { display: flex; flex-direction: column; gap: var(--s4); }
+.detail__box { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.detail__box h3 { font-size: var(--fs-md); }
+.detail__dispatch { gap: var(--s2); }
+.detail__why { margin: 0; font-size: var(--fs-sm); line-height: 1.4; }
+
+@media (max-width: 1100px) {
+  .detail__cols { grid-template-columns: 1fr; }
+}
+
+/* ── quality gate (GitHub PR checks) ──────────────────────────────── */
+.gate { display: flex; flex-direction: column; gap: var(--s2); }
+.gate__head { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); }
+.gate__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.gate__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s2);
+  align-items: start;
+  padding: var(--s2) 0;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gate__row:last-child { border-bottom: 0; }
+.gate__msg { grid-column: 2; font-size: var(--fs-xs); line-height: 1.4; }
+
+/* ── approval panel ───────────────────────────────────────────────── */
+.approval { display: flex; flex-direction: column; gap: var(--s3); }
+.approval__head { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); }
+.approval__slots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.approval__slot {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  font-size: var(--fs-sm);
+}
+/* The satisfied slot is the QUIET one. */
+.approval__slot--filled {
+  color: var(--state-ok);
+  border: 1px solid color-mix(in srgb, var(--state-ok) 35%, transparent);
+  background: color-mix(in srgb, var(--state-ok) 8%, transparent);
+}
+/* THE MISSING SIGNATURE IS THE LOUDEST THING ON SCREEN (Part 0.5).
+ * Full contrast text, solid warning border — deliberately NOT greyed. */
+.approval__slot--missing {
+  color: var(--text-primary);
+  font-weight: 600;
+  border: 1px solid var(--state-warning);
+  background: color-mix(in srgb, var(--state-warning) 12%, transparent);
+}
+.approval__note { margin: 0; font-size: var(--fs-xs); line-height: 1.45; }
+
+/* ── assurance ladder (WhatsApp ticks + Stripe timeline) ──────────── */
+.ladders { display: flex; flex-direction: column; gap: var(--s3); }
+.ladder { border: 1px solid var(--border-subtle); background: var(--bg-base); }
+.ladder__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-xs);
+}
+.ladder__channel { font-weight: 600; letter-spacing: 0.06em; }
+.ladder__state { margin-left: auto; text-transform: uppercase; letter-spacing: 0.05em; }
+.ladder__rungs { list-style: none; margin: 0; padding: var(--s2) var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
+
+.rung {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--s2);
+  align-items: baseline;
+  font-size: var(--fs-sm);
+  padding: var(--s1) 0;
+}
+.rung svg { align-self: center; }
+.rung--reached { color: var(--state-ok); }
+.rung--pending { color: var(--text-secondary); }
+
+/* NOT APPLICABLE: struck through, with the reason. NOT greyed (reads as
+ * loading), NOT hidden (reads as "we didn't check"). The single most
+ * GOV.UK-correct component in the product. */
+.rung--na { color: var(--text-secondary); }
+.rung--na s { text-decoration-thickness: 1px; }
+.rung__reason {
+  grid-column: 2 / -1;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--state-muted);
+  padding-left: var(--s2);
+  margin-top: var(--s1);
+}
+.rung__src { font-size: var(--fs-xs); }
+
+/* ── command palette ──────────────────────────────────────────────── */
+.palette__scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: 50;
+}
+.palette { width: min(560px, 92vw); }
+.palette__input {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.palette__input input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-md);
+}
+.palette__list { list-style: none; margin: 0; padding: var(--s1); max-height: 46vh; overflow: auto; }
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.palette__item.is-active { background: var(--bg-surface); }
+.palette__hint { font-size: var(--fs-xs); }
+.palette__item kbd { margin-left: auto; }
+.palette__empty { padding: var(--s3); font-size: var(--fs-sm); }
+
+/* ── login ────────────────────────────────────────────────────────── */
+.login { display: grid; place-items: center; height: 100%; padding: var(--s4); }
+.login__panel { width: min(380px, 92vw); padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+.login__brand { display: flex; align-items: center; gap: var(--s2); }
+.login__brand h1 { font-size: var(--fs-xl); letter-spacing: 0.04em; }
+.login__error { margin: 0; font-size: var(--fs-sm); }
+.login__note { margin: 0; font-size: var(--fs-xs); line-height: 1.5; }
+
+.field { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--fs-sm); }
+.field span { color: var(--text-secondary); }
+.field input {
+  padding: var(--s2) var(--s3);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  min-height: 36px;
+}
+.field input:focus { border-color: var(--state-info); }
