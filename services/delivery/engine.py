@@ -21,15 +21,18 @@ from services.governance.versioning import (
     release_supersede_lock,
     supersede_predecessor,
 )
-from services.targeting.escalation import primary_channel_for_alert
+from services.targeting.escalation import resolve_channels_for_recipients
 from services.targeting.geo import recipients_in_area
 
 
 async def create_deliveries(conn: asyncpg.Connection, alert_id: int, recipient_ids: list[int]) -> list[int]:
-    channel_id = await primary_channel_for_alert(conn, alert_id)
-    sim_channel_id = await conn.fetchval("SELECT id FROM channel WHERE code = 'sim'")
+    # Channel is resolved PER RECIPIENT, not once for the whole alert — see
+    # resolve_channels_for_recipients for why (§8.5's real-phones-vs-simulated
+    # split cannot be expressed by a single channel choice).
+    resolved = await resolve_channels_for_recipients(conn, alert_id, recipient_ids)
     delivery_ids: list[int] = []
     for recipient_id in recipient_ids:
+        channel_id, simulated = resolved[recipient_id]
         delivery_id = await conn.fetchval(
             """
             INSERT INTO delivery (alert_id, recipient_id, channel_id, state, simulated)
@@ -40,7 +43,7 @@ async def create_deliveries(conn: asyncpg.Connection, alert_id: int, recipient_i
             alert_id,
             recipient_id,
             channel_id,
-            channel_id == sim_channel_id,
+            simulated,
         )
         if delivery_id is None:
             delivery_id = await conn.fetchval(

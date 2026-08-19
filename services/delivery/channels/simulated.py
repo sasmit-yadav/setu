@@ -66,6 +66,34 @@ class SimulatedCarrierAdapter:
             source="simulated_carrier_profile",
             evidence_id=provider_ref,
         )
+
+        # A real carrier confirms delivery out-of-band (Twilio status callback,
+        # our own service worker calling home). The simulated carrier has no
+        # callback to wait for, so it models that confirmation here — subject
+        # to a config-driven rate, because not every message reaches a device
+        # even when the provider accepted it. That gap is precisely what the
+        # assurance ladder exists to show.
+        #
+        # Without this the ladder stopped at provider_accepted, and since
+        # reachability.reached_tier_floor is 2 (device_delivered), D7f's
+        # reach was 0% no matter how many alerts were sent — a metric that
+        # could never move is worse than no metric.
+        #
+        # Every row this produces carries simulated=true and renders with the
+        # SIM badge; channel_capability_tier already names the evidence source
+        # as 'simulated_carrier_profile'. Nothing here is presented as a real
+        # carrier receipt.
+        delivered_rate = float(
+            await config_repo.get(self._conn, "simulated.device_delivered_rate")
+        )
+        if random.random() < delivered_rate:
+            await record(
+                self._conn,
+                msg.delivery_id,
+                "device_delivered",
+                source="simulated_carrier_profile",
+                evidence_id=provider_ref,
+            )
         return SendResult(provider_ref=provider_ref, simulated=True)
 
     async def parse_webhook(

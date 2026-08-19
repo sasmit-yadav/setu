@@ -40,7 +40,9 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('simulated.latency_ms_min', '10',  'ms',    'Simulated carrier minimum latency'),
   ('simulated.latency_ms_max', '200', 'ms',    'Simulated carrier maximum latency'),
   ('simulated.failure_rate',   '0.05','ratio', 'Simulated transient failure probability'),
-  ('simulated.ms_to_seconds',  '0.001','factor','Milliseconds to seconds conversion for simulated latency');
+  ('simulated.ms_to_seconds',  '0.001','factor','Milliseconds to seconds conversion for simulated latency'),
+  ('simulated.device_delivered_rate', '0.92', 'ratio', 'Of messages the simulated carrier ACCEPTS, the share it then confirms reached a device. Deliberately below 1.0: provider-accepted is not device-delivered, and a ladder where every accepted message always arrives would teach the officer the wrong thing. Every row it produces is simulated=true and SIM-badged.'),
+  ('delivery.simulate_when_unaddressable', 'true', 'bool', 'When a recipient has no address for the policy channel (no push token, no phone), route them to the simulated carrier instead of failing the send. Trap 5 / §8.5: nationwide real SMS needs TRAI DLT registration, so most recipients run the identical engine against a simulated carrier, flagged simulated=true and badged SIM. Set false to make unaddressable recipients fail loudly instead — which is the honest choice once real addresses exist.');
 
 -- ═══ System-wide (§21.3) ═══
 INSERT INTO app_config (key, value, unit, note) VALUES

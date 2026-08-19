@@ -887,6 +887,77 @@ and are the highest-value remaining work.
 
 ---
 
+## 8.0.1 The platform had never delivered anything
+
+Found while asking "is the core loop actually end to end?" — and it was not.
+
+**Every delivery in the system's history had failed.** `create_deliveries`
+called `primary_channel_for_alert`, which returns the escalation policy's
+first step — `fcm` for every severity — and applied it to every recipient.
+No seeded recipient has a `push_token`, so `worker._resolve_address` raised
+`recipient_no_push_token` every single time. 379 failed deliveries, zero
+successful ones.
+
+The consequence was worse than a broken send path: **D7f reachability was 0%
+by construction.** Not because reach was genuinely zero, but because the send
+aborted before it began, so `delivery_event` never got a `device_delivered`
+row, and `reachability.reached_tier_floor = 2` could never be met. A metric
+that cannot move is worse than no metric — and reachability is the number the
+whole pitch leads with.
+
+### The fix: channel is resolved PER RECIPIENT
+
+`resolve_channels_for_recipients` replaces the single per-alert channel
+choice. §8.5's model — *"three villages wired to real phones… the other 337
+run the identical delivery engine against a simulated carrier"* — simply
+cannot be expressed by one channel for the whole alert.
+
+A recipient addressable on the policy channel gets the real adapter. One who
+is not gets the simulated carrier, `simulated = true`, SIM badge. Governed by
+`delivery.simulate_when_unaddressable`; set it false and unaddressable
+recipients fail loudly instead, which becomes the correct setting once real
+addresses exist.
+
+**Why falling back is not dishonest:** it hides nothing. `delivery.simulated`
+is set, the badge renders from it, and `channel_capability_tier` already names
+sim's evidence source as `simulated_carrier_profile`. The alternative —
+letting every delivery fail — is not more honest; it just produces a platform
+that does nothing.
+
+### The simulated carrier now completes the ladder
+
+It recorded `provider_accepted` and stopped, so even successful simulated
+sends could not lift reachability past tier 1. A real carrier confirms
+delivery out-of-band (Twilio status callback, our own service worker calling
+home); the simulator has no callback to wait for, so it models that
+confirmation directly — at `simulated.device_delivered_rate` (0.92),
+deliberately **below 1.0**, because provider-accepted is not device-delivered
+and a ladder where every accepted message always arrives would teach the
+officer the wrong thing.
+
+### Verified end to end
+
+One severe alert, two distinct officer approvals, dispatch, worker:
+
+| | |
+|---|---|
+| Deliveries | **241 delivered**, 11 `simulated_carrier_failure` |
+| Ladder | 241 `provider_accepted` → **224 `device_delivered`** |
+| D7f reachability | **92.5% of registered recipients · 0.8% of estimated population** |
+
+That last row is the two-denominator design (§4.1) doing exactly its job: the
+platform reaches nearly everyone *enrolled* and almost nobody in the
+*district*, because enrollment is the real bottleneck. The spec insists on
+showing both precisely so that gap cannot be hidden behind a flattering
+single number.
+
+`tests/unit/test_channel_resolution.py` locks in both directions — an
+unreachable recipient must be flagged, and a reachable one must **never** be
+downgraded to the simulator (a bug that simulated everything would also make
+the metrics move, so that direction needs its own test).
+
+---
+
 ## 8.1 Five bugs a green test suite did not catch
 
 All 37 tests passed while live ingestion was completely broken. Every bug

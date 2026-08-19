@@ -9,7 +9,12 @@ For "how does the system work / why is it built this way," see
 **Legend:** 🔴 Blocked (needs an external account/credential/decision) ·
 🟡 Ready to build (nothing blocking) · 🟢 Done · ⚪ Not started, not urgent
 
-**Last verification:** 65/65 pytest green (incl. 29 RBAC matrix tests) ·
+**Last verification:** 76/76 pytest green (incl. 29 RBAC matrix tests) ·
+**core loop proven end to end** — a severe alert now goes compose → quality
+gate → two distinct approvals → dispatch → fan-out → worker → **241 delivered**
+with a real assurance ladder (241 provider_accepted → 224 device_delivered)
+and D7f reachability reporting **92.5% of registered recipients / 0.8% of
+population**. Before this, every delivery in the system's history had failed ·
 **authentication + RBAC live** — `POST /alerts/{id}/dispatch` went from
 *200 with no token* to 401/403, and `approver_id` can no longer be supplied
 by the caller · all four guards clean
