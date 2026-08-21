@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { endpoints, type AssistanceCase, type PublicConfig } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 import { Kpi } from "../components/Kpi";
 import { useOpsSocket } from "../lib/useOpsSocket";
 
@@ -27,6 +28,7 @@ function factorWidth(value: number): string {
 }
 
 export function AssistanceQueue() {
+  const { t } = useT();
   const [rows, setRows] = useState<AssistanceCase[]>([]);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export function AssistanceQueue() {
       setCfg(nextCfg);
       setError(null);
     } catch {
-      setError("Could not load the assistance queue.");
+      setError(t("queue.loadError"));
     } finally {
       setLoading(false);
     }
@@ -65,7 +67,7 @@ export function AssistanceQueue() {
       await endpoints.assignCase(id, team.trim());
       await load();
     } catch {
-      setError("Assignment failed.");
+      setError(t("queue.assignFail"));
     } finally {
       setBusyId(null);
     }
@@ -82,7 +84,7 @@ export function AssistanceQueue() {
       });
       await load();
     } catch {
-      setError("Status update failed.");
+      setError(t("queue.statusFail"));
     } finally {
       setBusyId(null);
     }
@@ -98,24 +100,24 @@ export function AssistanceQueue() {
     <div className="screen">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Response</p>
-          <h2>Assistance queue</h2>
+          <p className="screen__kicker">{t("queue.kicker")}</p>
+          <h2>{t("queue.title")}</h2>
         </div>
         <label className="field queue__team">
-          <span>Assign to team</span>
+          <span>{t("queue.team")}</span>
           <input
             value={team}
             onChange={(e) => setTeam(e.target.value)}
-            placeholder="Team name"
+            placeholder={t("queue.teamPh")}
           />
         </label>
-        <button className="btn btn--ghost" onClick={() => void load()} aria-label="Refresh">
-          <RefreshCw size={14} aria-hidden /> Refresh
+        <button className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
+          <RefreshCw size={14} aria-hidden /> {t("live.refresh")}
         </button>
       </header>
 
-      <section className="kpis" aria-label="Queue summary">
-        <Kpi label="Open cases" value={openCount} tone={openCount ? "warn" : "ok"} />
+      <section className="kpis" aria-label={t("queue.open")}>
+        <Kpi label={t("queue.open")} value={openCount} tone={openCount ? "warn" : "ok"} />
         {urgentId ? (
           <Kpi
             label={typeLabel(cfg, urgentId)}
@@ -127,18 +129,18 @@ export function AssistanceQueue() {
 
       {error && <p className="danger" role="alert">{error}</p>}
 
-      <section className="panel table queue" aria-label="Cases" role="table">
+      <section className="panel table queue" aria-label={t("queue.casesAria")} role="table">
         <div className="table__head queue__head" role="row">
-          <span role="columnheader">Priority</span>
-          <span role="columnheader">Need</span>
-          <span role="columnheader">Unit</span>
-          <span role="columnheader">Status</span>
-          <span role="columnheader">Actions</span>
+          <span role="columnheader">{t("queue.colPriority")}</span>
+          <span role="columnheader">{t("queue.colNeed")}</span>
+          <span role="columnheader">{t("queue.colUnit")}</span>
+          <span role="columnheader">{t("queue.colStatus")}</span>
+          <span role="columnheader">{t("queue.colActions")}</span>
         </div>
         <div className="table__body">
-          {loading && <p className="muted table__empty">Loading…</p>}
+          {loading && <p className="muted table__empty">{t("common.loading")}</p>}
           {!loading && rows.length === 0 && (
-            <p className="muted table__empty">No open cases.</p>
+            <p className="muted table__empty">{t("queue.empty")}</p>
           )}
           {rows.map((row, index) => {
             const next = nextStatus(sequence, row.status);
@@ -163,14 +165,16 @@ export function AssistanceQueue() {
                     {row.free_text ? <span className="muted"> — {row.free_text}</span> : null}
                   </span>
                   <span>{row.unit_name}</span>
-                  <span className={`status-chip status-chip--${row.status}`}>{row.status}</span>
+                  <span className={`status-chip status-chip--${row.status}`}>
+                    {lookup(t, "case", row.status)}
+                  </span>
                   {row.status === "new" ? (
                     <button
                       className="btn btn--approve"
                       disabled={busyId === row.id || !team.trim()}
                       onClick={() => void assign(row.id)}
                     >
-                      {busyId === row.id ? "Assigning…" : `Assign ${typeLabel(cfg, row.response_type)}`}
+                      {busyId === row.id ? t("queue.assigning") : t("queue.assign")}
                     </button>
                   ) : next ? (
                     <button
@@ -178,19 +182,19 @@ export function AssistanceQueue() {
                       disabled={busyId === row.id}
                       onClick={() => void advance(row)}
                     >
-                      {next}
+                      {lookup(t, "case", next)}
                     </button>
                   ) : null}
                 </div>
                 {openId === row.id && (
                   <div className="queue__factors">
-                    <p>{first ? "Why is this first" : "Why this rank"}</p>
+                    <p>{first ? t("queue.whyFirst") : t("queue.whyRank")}</p>
                     {factors.formula && <p className="mono muted">{factors.formula}</p>}
                     {factors.factors &&
                       Object.entries(factors.factors).map(([key, value]) => (
                         <div key={key} className="queue__factor">
-                          <span className="mono">
-                            {key}: {value} × {factors.weights?.[key] ?? "?"}
+                          <span>
+                            {lookup(t, "factor", key)}: {value} × {factors.weights?.[key] ?? "?"}
                           </span>
                           <span className="queue__bar" aria-hidden>
                             <span style={{ width: factorWidth(Number(value)) }} />

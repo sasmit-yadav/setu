@@ -7,6 +7,7 @@ import {
   type PublicConfig,
   type ValidateResponse,
 } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { LiveMap } from "../components/LiveMap";
 import { QualityGate } from "../components/QualityGate";
 import { ApprovalPanel } from "../components/ApprovalPanel";
@@ -20,6 +21,7 @@ export function Composer({
   onOpen: (id: number) => void;
   onBack: () => void;
 }) {
+  const { t } = useT();
   const [map, setMap] = useState<MapPayload | null>(null);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [polygon, setPolygon] = useState<Record<string, unknown> | null>(null);
@@ -35,18 +37,25 @@ export function Composer({
   const [error, setError] = useState<string | null>(null);
   const [approvals, setApprovals] = useState<{ have: number; need: number } | null>(null);
   const [incoming, setIncoming] = useState<AlertSummary[]>([]);
+  const [ownRecent, setOwnRecent] = useState<AlertSummary[]>([]);
 
   useEffect(() => {
     void (async () => {
-      const [nextMap, nextCfg, nextAlerts] = await Promise.all([
+      const [nextMap, nextCfg, usgsDrafts, gdacsDrafts, nextAlerts] = await Promise.all([
         endpoints.map(),
         endpoints.publicConfig(),
-        endpoints.alerts(),
+        endpoints.alerts({ source_id: "usgs", lifecycle_status: "draft", limit: 20 }),
+        endpoints.alerts({ source_id: "gdacs", lifecycle_status: "draft", limit: 20 }),
+        endpoints.alerts({ limit: 8 }),
       ]);
       setMap(nextMap);
       setCfg(nextCfg);
-      const active = nextAlerts.filter((row) => row.lifecycle_status === "active");
-      setIncoming((active.length ? active : nextAlerts).slice(0, 8));
+      setIncoming(
+        [...usgsDrafts, ...gdacsDrafts].filter(
+          (row) => row.source_id === "usgs" || row.source_id === "gdacs",
+        ),
+      );
+      setOwnRecent(nextAlerts.filter((row) => row.source_id === "manual").slice(0, 6));
     })();
   }, []);
 
@@ -77,7 +86,7 @@ export function Composer({
       setGate(nextGate);
       setApprovals({ have: detail.approval_have, need: detail.approval_need });
     } catch {
-      setError("Could not create the draft. Draw a closed polygon first.");
+      setError(t("compose.createError"));
     } finally {
       setBusy(null);
     }
@@ -93,7 +102,7 @@ export function Composer({
       setPreview(await endpoints.preview(alertId));
       setGate(await endpoints.validate(alertId));
     } catch {
-      setError("Could not update expiry.");
+      setError(t("compose.patchError"));
     } finally {
       setBusy(null);
     }
@@ -105,7 +114,7 @@ export function Composer({
     try {
       setApprovals(await endpoints.approve(alertId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approval failed.");
+      setError(err instanceof Error ? err.message : t("approval.fail"));
     } finally {
       setBusy(null);
     }
@@ -118,7 +127,7 @@ export function Composer({
       await endpoints.dispatch(alertId);
       onOpen(alertId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Dispatch blocked.");
+      setError(err instanceof Error ? err.message : t("alert.sendFail", { code: "blocked" }));
       if (alertId) setGate(await endpoints.validate(alertId));
     } finally {
       setBusy(null);
@@ -131,22 +140,47 @@ export function Composer({
     <div className="screen screen--wide">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Mission briefing</p>
-          <h2>Compose alert</h2>
+          <p className="screen__kicker">{t("compose.kicker")}</p>
+          <h2>{t("compose.title")}</h2>
         </div>
-        <button className="btn btn--ghost" onClick={onBack} aria-label="Back to live ops">Back</button>
+        <button className="btn btn--ghost" onClick={onBack} aria-label={t("compose.back")}>
+          {t("compose.back")}
+        </button>
       </header>
-      <p className="muted">
-        Incoming rows below are whatever the ingest table holds right now. Load one, then draw over the labelled village it names. Close the polygon with at least three points. Dispatch needs at least one enrolled resident inside that area.
-      </p>
-      <section className="panel composer__intel" aria-label="Incoming sources">
-        <p className="screen__kicker">Incoming sources</p>
-        <h3>Briefing</h3>
+      <p className="lede">{t("compose.lede")}</p>
+      <section className="panel composer__intel" aria-label={t("compose.incoming")}>
+        <p className="screen__kicker">{t("compose.incoming")}</p>
+        <h3>{t("compose.incoming")}</h3>
         {incoming.length === 0 ? (
-          <p className="muted">No ingested alerts in this session. Draw only from a field report.</p>
+          <p className="muted">{t("compose.incomingEmpty")}</p>
         ) : (
           <ul className="composer__sources">
             {incoming.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className="composer__source"
+                  onClick={() => onOpen(row.id)}
+                >
+                  <span className="muted">{row.source_id}</span>
+                  <SeverityBadge severity={row.severity} />
+                  <span className="composer__source-headline">{row.headline}</span>
+                  {row.is_authoritative ? <ProvenanceChip kind="authoritative" /> : null}
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => onOpen(row.id)}>
+                  {t("compose.open")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {ownRecent.length > 0 && (
+        <section className="panel composer__intel" aria-label={t("compose.incomingOwn")}>
+          <p className="screen__kicker">{t("compose.incomingOwn")}</p>
+          <h3>{t("compose.incomingOwn")}</h3>
+          <ul className="composer__sources">
+            {ownRecent.map((row) => (
               <li key={row.id}>
                 <button
                   type="button"
@@ -156,80 +190,83 @@ export function Composer({
                     setHeadline(row.headline);
                   }}
                 >
-                  <span className="mono muted">{row.source_id}</span>
+                  <span className="muted">{row.source_id}</span>
                   <SeverityBadge severity={row.severity} />
                   <span className="composer__source-headline">{row.headline}</span>
-                  {row.is_authoritative ? <ProvenanceChip kind="authoritative" /> : null}
                 </button>
                 <button type="button" className="btn btn--ghost" onClick={() => onOpen(row.id)}>
-                  Open
+                  {t("compose.open")}
                 </button>
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
       {error && <p className="danger" role="alert" aria-live="polite">{error}</p>}
       <div className="composer">
         <LiveMap payload={map} cfg={cfg} draw onPolygon={onPolygon} />
         <form
           className="panel detail__box composer__form briefing"
-          aria-label="Compose alert"
+          aria-label={t("compose.title")}
           onSubmit={(e) => {
             e.preventDefault();
             void createDraft();
           }}
         >
           <label className="field">
-            <span>Severity</span>
+            <span>{t("compose.severity")}</span>
             <select value={severity} onChange={(e) => setSeverity(e.target.value)} required>
               <option value="" disabled>
-                Select from an incoming source
+                {t("compose.pickSeverity")}
               </option>
-              <option value="minor">minor</option>
-              <option value="moderate">moderate</option>
-              <option value="severe">severe</option>
-              <option value="extreme">extreme</option>
+              <option value="minor">{t("sev.minor")}</option>
+              <option value="moderate">{t("sev.moderate")}</option>
+              <option value="severe">{t("sev.severe")}</option>
+              <option value="extreme">{t("sev.extreme")}</option>
             </select>
           </label>
           <label className="field">
-            <span>Headline</span>
+            <span>{t("compose.headline")}</span>
             <input value={headline} onChange={(e) => setHeadline(e.target.value)} required />
           </label>
           <label className="field">
-            <span>Body</span>
+            <span>{t("compose.body")}</span>
             <textarea value={body} onChange={(e) => setBody(e.target.value)} required rows={4} />
           </label>
           <label className="field">
-            <span>Expires at</span>
+            <span>{t("compose.expires")}</span>
             <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
           </label>
           <label className="field">
-            <span>Estimated onset</span>
+            <span>{t("compose.onset")}</span>
             <input type="datetime-local" value={onset} onChange={(e) => setOnset(e.target.value)} />
           </label>
           <button className="btn btn--primary" type="submit" disabled={busy !== null || !severity || !headline || !body}>
-            {busy === "create" ? "Creating…" : "Create draft"}
+            {busy === "create" ? t("compose.creating") : t("compose.create")}
           </button>
           {alertId && (
             <button className="btn" type="button" onClick={() => void saveExpiry()} disabled={busy !== null}>
-              Save expiry and re-validate
+              {t("compose.saveExpiry")}
             </button>
           )}
           {preview && (
             <>
-              <p className="mono">
-                Alert #{preview.alert_id} · {preview.recipient_count} recipients · {preview.units.length} units
+              <p>
+                {t("compose.previewLine", {
+                  id: preview.alert_id,
+                  people: preview.recipient_count,
+                  units: preview.units.length,
+                })}
               </p>
               {preview.recipient_count === 0 ? (
                 <p className="danger" role="status">
-                  No enrolled residents inside this polygon. Draw over a labelled village, not empty sea or unnamed land.
+                  {t("compose.noPeople")}
                 </p>
               ) : null}
               <ul className="muted">
                 {preview.units.slice(0, 8).map((row) => (
                   <li key={row.unit_id}>
-                    {row.name} · {row.recipients}
+                    {t("compose.peopleIn", { name: row.name, n: row.recipients })}
                   </li>
                 ))}
               </ul>
@@ -250,11 +287,13 @@ export function Composer({
             disabled={!alertId || blocked || busy !== null}
             onClick={() => void dispatch()}
           >
-            {busy === "dispatch" ? "Dispatching…" : "Dispatch"}
+            {busy === "dispatch" ? t("compose.sending") : t("compose.send")}
           </button>
           {blocked && gate && (
             <p className="danger detail__why">
-              Dispatch blocked — {gate.results.filter((r) => r.status === "fail").map((r) => r.rule_id).join(", ")}
+              {t("compose.blocked", {
+                rules: gate.results.filter((r) => r.status === "fail").map((r) => r.rule_id).join(", "),
+              })}
             </p>
           )}
         </form>

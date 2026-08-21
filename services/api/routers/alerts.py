@@ -114,6 +114,8 @@ async def patch_alert(
 async def list_alerts(
     lifecycle_status: str | None = None,
     severity: str | None = None,
+    source_id: str | None = None,
+    authoritative: bool | None = None,
     limit: int | None = None,
     offset: int = 0,
     conn: asyncpg.Connection = Depends(get_conn),
@@ -131,6 +133,8 @@ async def list_alerts(
         LEFT JOIN alert_source s ON s.source_id = a.source_id
         WHERE ($1::text IS NULL OR a.lifecycle_status = $1)
           AND ($2::text IS NULL OR a.severity = $2)
+          AND ($6::text IS NULL OR a.source_id = $6)
+          AND ($7::boolean IS NULL OR COALESCE(s.is_authoritative, false) = $7)
           AND (
             $5::bigint IS NULL
             OR ST_Intersects(a.area, (SELECT geom FROM admin_unit WHERE id = $5))
@@ -143,6 +147,8 @@ async def list_alerts(
         effective_limit,
         offset,
         citizen_unit,
+        source_id,
+        authoritative,
     )
     return [
         AlertSummaryOut(

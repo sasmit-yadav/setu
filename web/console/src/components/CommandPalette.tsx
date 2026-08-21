@@ -26,7 +26,15 @@ export interface Command {
   run: () => void;
 }
 
-export function CommandPalette({ commands }: { commands: Command[] }) {
+export function CommandPalette({
+  commands,
+  emptyLabel = "No matching command",
+  searchLabel = "Type a command…",
+}: {
+  commands: Command[];
+  emptyLabel?: string;
+  searchLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -73,7 +81,7 @@ export function CommandPalette({ commands }: { commands: Command[] }) {
       className="palette__scrim"
       role="dialog"
       aria-modal="true"
-      aria-label="Command palette"
+      aria-label={searchLabel}
       onClick={() => setOpen(false)}
     >
       {/* Angular, corner-cut — a "mission briefing" panel, not a rounded
@@ -84,8 +92,8 @@ export function CommandPalette({ commands }: { commands: Command[] }) {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Type a command…"
-            aria-label="Command"
+            placeholder={searchLabel}
+            aria-label={searchLabel}
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
@@ -108,7 +116,7 @@ export function CommandPalette({ commands }: { commands: Command[] }) {
         </div>
         <ul className="palette__list" role="listbox">
           {filtered.length === 0 && (
-            <li className="palette__empty muted">No matching command</li>
+            <li className="palette__empty muted">{emptyLabel}</li>
           )}
           {filtered.map((c, i) => (
             <li

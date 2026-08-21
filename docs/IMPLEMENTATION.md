@@ -222,13 +222,18 @@ help types and labels) comes from `GET /api/v1/public/config` — no hardcoded
 fallbacks in `App.tsx` or `sw.ts` (enforced by `scripts/check_pwa_config.py`
 in CI). Ed25519 verify key from env
 (`VITE_ALERT_SIGNING_PUBKEY_B64`) or `GET /api/v1/public/signing-key`.
-Push notifications require Firebase + VAPID (blocked — manual delivery ID
-works for dev). Dev server proxies `/api` → `localhost:8000` in
-`vite.config.ts` only — not a production config path.
+Push notifications require Firebase + VAPID; live `fcm_send` is still 0.
+After sign-in the PWA loads `GET /api/v1/citizen/deliveries` for the
+account's enrolled village — there is no typed delivery ID (§6.16). Dev
+server proxies `/api` → `localhost:8000` in `vite.config.ts` only — not a
+production config path. Live: `https://setucitizen.vercel.app` (`:5174`
+locally).
 
-**Officer console:** dark-first ops UI — Live Operations, Alert Detail,
-Assistance queue. Compose still happens via API; remaining event-time
-screens in §7.3.
+**Officer console:** dark-first ops UI — Live Operations, Compose, Alert
+Detail, Assistance, Incident, Command Board, Methodology, Analytics, Relay,
+Enrollment. Copy is plain officer language in **en / hi / ml / mr**
+(`web/console/src/lib/i18n.tsx`). Live: `https://setuconsole.vercel.app`
+(`:5173` locally).
 
 ### 3.5 Local infrastructure
 
@@ -623,7 +628,7 @@ surfaced is fixed (§6.15). See §6.13 for what the original audit found.
 |---|---|---|---|
 | GET | `/health` | `routers/health.py` | ✅ |
 | POST | `/api/v1/alerts` | composer create draft | ✅ |
-| GET | `/api/v1/alerts` | list (limit from `api.list_default_limit`) | ✅ |
+| GET | `/api/v1/alerts` | list (`lifecycle_status`, `severity`, `source_id`, `authoritative`; limit from `api.list_default_limit`) | ✅ |
 | GET | `/api/v1/alerts/{id}` | alert detail | ✅ |
 | POST | `/api/v1/alerts/{id}/preview` | exposure preview | ✅ |
 | POST | `/api/v1/alerts/{id}/validate` | F1 quality gate | ✅ |
@@ -649,13 +654,18 @@ surfaced is fixed (§6.15). See §6.13 for what the original audit found.
 | GET | `/api/v1/incidents/{id}/timeline` | D10f audit timeline | ✅ |
 | GET | `/api/v1/public/config` | PWA + citizen runtime keys | ✅ |
 | GET | `/api/v1/public/signing-key` | Ed25519 public key (b64) | ✅ |
+| GET | `/api/v1/citizen/deliveries` | Active warnings for the session's enrolled unit | ✅ |
 | GET | `/api/v1/citizen/deliveries/{id}` | Offline-capable alert payload | ✅ |
 | POST | `/api/v1/admin/recipients/import` | E4 CSV enrollment | ✅ |
 | POST | `/webhooks/sms-inbound` | SMS keyword REGISTER/STOP | ✅ |
 | POST | `/webhooks/sms-status` | Twilio delivery status | ✅ |
 | POST | `/webhooks/ivr-status` | IVR DTMF → citizen response | ✅ |
 
-CORS allows `http://localhost:5173` / `:5174` (console and citizen) in `services/api/main.py`. Dev still prefers the Vite same-origin proxy.
+CORS allows `http://localhost:5173` / `:5174` (console and citizen) in
+`services/api/main.py` by default. Deployed origins
+(`https://setucitizen.vercel.app`, `https://setuconsole.vercel.app`) are
+added via Render `CORS_ALLOWED_ORIGINS` — never hardcoded in `main.py`.
+Dev still prefers the Vite same-origin proxy.
 
 **Env-gated live channels:** FCM, SMS, IVR, email adapters send for real when
 credentials are present; otherwise worker catches `ChannelUnavailable` and
@@ -677,7 +687,7 @@ deployments — sim path is honest, not silent.
 | `neon-geometry` | `scripts/push_geometry_to_neon.py` |
 | `import-enrollment` | `scripts/import_enrollment_csv.py` |
 | `verify-data` | `scripts/verify_data_layer.py` |
-| `citizen-dev` | Vite dev server `:5173` |
+| `citizen-dev` | Vite dev server `:5174` |
 | `snapshot` | `scripts/snapshot.py` |
 | `fetch-basemap` | `scripts/fetch_basemap.py` (go-pmtiles extract, placeholder fallback) |
 | `demo` | `scripts/guard_local_only.py` → migrate → snapshot load/verify |
@@ -953,8 +963,8 @@ on `require_*` the same way `alerts.py` does. Receipts stay nonce-gated
   area only, via `GET /assistance/summary` (`open_count` per unit, no
   response types, no household list).
 - **citizen** write paths (`POST /ack`, `POST /response`,
-  `GET /citizen/deliveries/{id}`) — `citizen` / `officer` / `state_admin` /
-  `relay_node`. Auditor is 403.
+  `GET /citizen/deliveries`, `GET /citizen/deliveries/{id}`) —
+  `citizen` / `officer` / `state_admin` / `relay_node`. Auditor is 403.
 
 `assigned_by` is taken from the authenticated principal, never the body
 (same shape as `approver_id`).
@@ -1245,6 +1255,7 @@ split exactly.
 | Component | Host | URL |
 |---|---|---|
 | Citizen PWA | Vercel | `https://setucitizen.vercel.app` |
+| Officer console | Vercel | `https://setuconsole.vercel.app` |
 | API | Render (free web) | `https://setu-api-6ujx.onrender.com` |
 | Postgres + PostGIS | Neon (Singapore) | `ep-damp-dust-az2n3wn2` |
 | Redis Streams | Upstash (Singapore) | `fresh-kingfish-106444` |
@@ -1372,7 +1383,7 @@ deployed stack, and confirmed baked into the served bundle.
 | `/public/config` | 5 firebase keys + VAPID, 42 keys total |
 | PWA `sw.js` | `application/javascript` — rewrite guard held |
 | PWA manifest + icons | `application/manifest+json`, both PNGs |
-| CORS | allows the Vercel origin and `localhost:5173` |
+| CORS | must allow both Vercel origins (`setucitizen`, `setuconsole`) and `localhost:5173` / `:5174` — no trailing slash |
 | Worker → Upstash | probe entry read, processed, acked (`entries-read=1`, `lag=0`) |
 
 **Note on Upstash:** `XINFO GROUPS` reports `consumers=0` even while actively
@@ -1466,6 +1477,73 @@ already built for the loaded-alert view (§6.14), just given somewhere to render
 before any alert exists. That is exposing an existing capability, not adding
 one.
 
+That gate was **not enough**. `npm run dev` still showed the ID box, and with
+`fcm_send` at 0 the push-tap path cannot be the only way a signed-in resident
+sees a warning. §6.16 removes the box and loads the village inbox instead.
+
+---
+
+### 6.16 Citizen inbox by enrolled village; officer desk in four languages
+
+Two demo-blocking gaps after §6.15.
+
+#### A resident must not type a delivery ID
+
+Gating the ID form behind `import.meta.env.DEV` still left anyone running
+the Vite citizen app (`:5174`) staring at a number box. Delivery `1` is the
+first row in `delivery`, not a PIN and not "alert 1." A real resident has
+no way to know it.
+
+`GET /api/v1/citizen/deliveries` lists **active** alerts whose recipient
+`unit_id` matches the session's `unit_scope_id`, one row per alert, newest
+`effective_at` first. After login the PWA calls that list and opens the
+first row. If the list is empty, the screen is **"No warning for your
+village right now"** — honest, not a search box. `?delivery_id=` from
+`notificationclick` (`sw.ts`) still works when a real FCM tap exists.
+
+**Where "your village" comes from is enrollment, not GPS.** There is no
+`app_user` → `recipient` foreign key. Recipients are CSV / SMS keyword;
+the citizen session carries `unit_scope_id` assigned at provision
+(`demo.unit_scope.citizen@setu.example` → **Muttil North**, ADM5 id
+8157). Officers are **Vythiri** (ADM3 id 3081). GPS is requested only for
+help types in `response.location_prompt_types`; if the resident refuses,
+the help request still goes. Safe-zone search falls back to the village
+centroid.
+
+Auditor listing the inbox is **403**. Covered by
+`tests/unit/test_rbac.py::test_citizen_inbox_returns_list` and
+`test_auditor_cannot_list_citizen_inbox`.
+
+#### Official feeds land as drafts and must be findable
+
+USGS / GDACS persist as `lifecycle_status = 'draft'` and **never
+auto-dispatch**. The composer used to prefer `active` rows, so official
+drafts sat under a pile of manual alerts and the officer desk looked empty
+of "real" events.
+
+`GET /api/v1/alerts` accepts `source_id` and `authoritative`. Live Ops and
+Composer fetch `source_id=usgs|gdacs` + `lifecycle_status=draft` and pin
+**From official sites — not sent yet**. Sending is still Four-Eyes (or
+source-authoritative) plus the quality gate. `python run.py ingest` is a
+separate process from `python run.py api` — starting the API alone does
+not pull feeds. GDACS `/geteventlist/SEARCH` can time out; the scheduler
+retries every five minutes.
+
+#### Officer copy and the hosted console
+
+`web/console/src/lib/i18n.tsx` holds **en / hi / ml / mr**. `LangSwitcher`
+sits on login and the topbar; `localStorage` key `setu.console.lang`;
+`document.documentElement.lang` updates with it. Nav is plain language
+(Map, Write a warning, Help needed, On foot, Register people) and is
+role-gated: compose / help / enroll for officer and state_admin; on-foot
+also for relay_node. Provenance chips stay visually distinct; only the
+wording changed (Practice send, Person confirmed, Official source, Rough
+guess). `scripts/a11y-check.mjs` needles the `t("…")` keys.
+
+Hosted at `https://setuconsole.vercel.app` (`web/console/vercel.json`).
+Render `CORS_ALLOWED_ORIGINS` must include that origin next to the citizen
+PWA, **no trailing slash**.
+
 ---
 
 ## 7. Frontend
@@ -1490,8 +1568,9 @@ language selector — and each is **designed twice, not shared**. Nothing in
 
 ### 7.1 The operations console (`web/console/`)
 
-Vite + React 19 + TypeScript, ~2,000 lines. Dark-first, high-density — the
-Linear / Datadog / PagerDuty lineage named in Part 0.4.2.
+Vite + React 19 + TypeScript. Dark-first, high-density — the Linear /
+Datadog / PagerDuty lineage named in Part 0.4.2. Officer-facing strings
+go through `t()` (`en` / `hi` / `ml` / `mr`); see §6.16.
 
 **Design rules, and how each was verified** (checked in the live DOM against
 the running API, not asserted):
@@ -1584,8 +1663,9 @@ the product:
 | Surface | What it shows | Source |
 |---|---|---|
 | Live Ops map | Unit polygons coloured by `recipient_reach_pct`; labelled names | `GET /api/v1/ops/map` |
+| Live Ops **From official sites** | USGS/GDACS drafts, not yet sent | `GET /api/v1/alerts` with `source_id` + `lifecycle_status=draft` |
 | Live Ops table / "Where is trouble" | Ingested and manual alerts | `GET /api/v1/alerts` |
-| Compose **Incoming sources** | Same alert rows (active first) | `GET /api/v1/alerts` |
+| Compose **From official sites** | Same official drafts | same query as Live Ops inbox |
 | Compose draw | Officer-drawn polygon for a **new** warning | POST `/api/v1/alerts` GeoJSON |
 | Unit panel | Reachability, vulnerability, reach-risk | `GET /api/v1/units/{id}/…` |
 
@@ -1707,7 +1787,7 @@ setu/
 ├── services/
 │   ├── api/             main.py, deps.py, schemas.py, config_repo.py, db.py
 │   │   └── routers/     alerts, health, units, response, assistance, incidents,
-│   │                    public, citizen, enrollment, webhooks, ack, receipts
+│   │                    public, citizen, enrollment, webhooks, ack, receipts, ops, auth
 │   ├── delivery/        engine, state_machine, assurance, worker, keys
 │   │   └── channels/    base + simulated + fcm/sms/ivr/email (env-gated) + stubs
 │   ├── ingestion/       usgs/gdacs adapters, poller, scheduler, normalize, persist, incident_linker
@@ -1720,12 +1800,12 @@ setu/
 │   └── ml/              (not started — hosting TBD)
 ├── web/
 │   ├── console/         Ops console — Vite + React, dark-first (§7). Dev :5173
-│   │   └── src/         lib/api.ts · components/{LiveMap, AssuranceLadder, QualityGate,
-│   │                    ApprovalPanel, CommandPalette, Kpi, SeverityBadge,
-│   │                    ProvenanceChip, ReachabilityCard, RiskDial} · pages/{Login, LiveOps,
-│   │                    Composer, AlertDetail, AssistanceQueue, Incident, CommandBoard,
-│   │                    Methodology, Analytics, RelayTasks, Enrollment}
-│   │                    · styles/{tokens, base, layout}.css
+│   │   └── src/         lib/{api.ts, i18n.tsx, useOpsSocket.ts} · components/{LiveMap,
+│   │                    AssuranceLadder, QualityGate, ApprovalPanel, CommandPalette,
+│   │                    LangSwitcher, Kpi, SeverityBadge, ProvenanceChip, ReachabilityCard,
+│   │                    RiskDial} · pages/{Login, LiveOps, Composer, AlertDetail,
+│   │                    AssistanceQueue, Incident, CommandBoard, Methodology, Analytics,
+│   │                    RelayTasks, Enrollment} · styles/{tokens, base, layout}.css
 │   │   └── public/tiles/setu-basemap.pmtiles
 │   └── citizen/         PWA — Vite + React + Workbox (src/sw.ts). Dev :5174
 ├── data/seeds/          01–06 applied locally (06 = app_user roles)

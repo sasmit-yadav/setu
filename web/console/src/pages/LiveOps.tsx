@@ -9,6 +9,7 @@ import {
   type OpsSummary,
   type PublicConfig,
 } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 import { Kpi } from "../components/Kpi";
@@ -26,24 +27,18 @@ function relative(iso: string): string {
   return `${Math.round(hrs / 24)}d`;
 }
 
-function feedLabel(eventType: string): string {
-  if (eventType === "acknowledged") return "acknowledged";
-  if (eventType === "device_delivered") return "device delivered";
-  if (eventType === "notification_opened") return "opened";
-  if (eventType === "citizen_response") return "response";
-  return eventType;
-}
-
 export function LiveOps({
   onOpen,
   onCompose,
   onUnit,
 }: {
   onOpen: (id: number) => void;
-  onCompose: () => void;
+  onCompose?: () => void;
   onUnit: (id: number) => void;
 }) {
+  const { t } = useT();
   const [alerts, setAlerts] = useState<AlertSummary[]>([]);
+  const [official, setOfficial] = useState<AlertSummary[]>([]);
   const [map, setMap] = useState<MapPayload | null>(null);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [summary, setSummary] = useState<OpsSummary | null>(null);
@@ -56,14 +51,21 @@ export function LiveOps({
 
   const load = useCallback(async () => {
     try {
-      const [nextAlerts, nextMap, nextCfg, nextSummary, nextFeed] = await Promise.all([
+      const [nextAlerts, usgsDrafts, gdacsDrafts, nextMap, nextCfg, nextSummary, nextFeed] = await Promise.all([
         endpoints.alerts(),
+        endpoints.alerts({ source_id: "usgs", lifecycle_status: "draft", limit: 40 }),
+        endpoints.alerts({ source_id: "gdacs", lifecycle_status: "draft", limit: 40 }),
         endpoints.map(),
         endpoints.publicConfig(),
         endpoints.opsSummary(),
         endpoints.opsFeed(),
       ]);
-      setAlerts(nextAlerts);
+      const pinned = [...usgsDrafts, ...gdacsDrafts].filter(
+        (row) => row.source_id === "usgs" || row.source_id === "gdacs",
+      );
+      const seen = new Set(pinned.map((row) => row.id));
+      setOfficial(pinned);
+      setAlerts([...pinned, ...nextAlerts.filter((row) => !seen.has(row.id))]);
       setMap(nextMap);
       setCfg(nextCfg);
       setSummary(nextSummary);
@@ -78,11 +80,11 @@ export function LiveOps({
       feedHeadRef.current = headKey;
       setError(null);
     } catch {
-      setError("Could not load live operations.");
+      setError(t("live.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -92,7 +94,7 @@ export function LiveOps({
   const virtualizer = useVirtualizer({
     count: alerts.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 44,
+    estimateSize: () => 48,
     overscan: 12,
   });
 
@@ -102,19 +104,21 @@ export function LiveOps({
     <div className="screen screen--wide">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Live picture</p>
-          <h2>Live Operations</h2>
+          <p className="screen__kicker">{t("live.kicker")}</p>
+          <h2>{t("live.title")}</h2>
         </div>
+        {onCompose && (
         <button className="btn btn--primary" onClick={onCompose}>
-          <PenLine size={14} aria-hidden /> Compose
+          <PenLine size={14} aria-hidden /> {t("live.write")}
         </button>
-        <button className="btn btn--ghost" onClick={() => void load()} aria-label="Refresh">
-          <RefreshCw size={14} aria-hidden /> Refresh
+        )}
+        <button className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
+          <RefreshCw size={14} aria-hidden /> {t("live.refresh")}
         </button>
       </header>
 
-      <div className="trouble" aria-label="Active alerts by severity">
-        <span className="trouble__label muted">Where is trouble</span>
+      <div className="trouble" aria-label={t("live.trouble")}>
+        <span className="trouble__label muted">{t("live.trouble")}</span>
         {alerts
           .filter((a) => a.lifecycle_status === "active")
           .map((a) => (
@@ -129,23 +133,48 @@ export function LiveOps({
             </button>
           ))}
       </div>
+
+      <section className="inbox panel" aria-label={t("live.officialTitle")}>
+        <p className="screen__kicker">{t("live.officialTitle")}</p>
+        <p className="lede">{t("live.officialHint")}</p>
+        {official.length === 0 ? (
+          <p className="muted">{t("live.officialEmpty")}</p>
+        ) : (
+          <ul className="inbox__list">
+            {official.map((row) => (
+              <li key={row.id}>
+                <button type="button" className="inbox__row" onClick={() => onOpen(row.id)}>
+                  <SeverityBadge severity={row.severity} />
+                  <span className="inbox__head">{row.headline}</span>
+                  <ProvenanceChip kind="authoritative" />
+                  <span className="muted">{row.source_id}</span>
+                  <span className={`status status--${row.lifecycle_status}`}>
+                    {lookup(t, "life", row.lifecycle_status)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {summary && (
-        <section className="kpis" aria-label="Summary">
-          <Kpi label="Targeted" value={summary.targeted} />
+        <section className="kpis" aria-label={t("live.title")}>
+          <Kpi label={t("live.kpiTargeted")} value={summary.targeted} />
           <Kpi
-            label="Delivered"
+            label={t("live.kpiDelivered")}
             value={summary.delivered}
             tone="info"
             note={summary.delivered_note}
           />
           <Kpi
-            label="Acknowledged"
+            label={t("live.kpiAcked")}
             value={summary.acknowledged}
             tone={summary.acknowledged ? "ok" : undefined}
             note={summary.acknowledged_note}
           />
           <Kpi
-            label="At-risk"
+            label={t("live.kpiRisk")}
             value={summary.at_risk}
             tone={summary.at_risk ? "danger" : "ok"}
             note={summary.at_risk_note}
@@ -155,7 +184,7 @@ export function LiveOps({
 
       {tileSource !== "pmtiles_local" && (
         <p className="muted" role="status">
-          Basemap is {tileSource || "hosted"}. Gate 3 needs map.tile_source=pmtiles_local and a local .pmtiles file.
+          {t("live.basemapNote")}
         </p>
       )}
       {error && <p className="danger" role="alert">{error}</p>}
@@ -164,27 +193,25 @@ export function LiveOps({
         <div className="live-map-wrap">
           <LiveMap payload={map} cfg={cfg} onUnit={onUnit} />
           <p className="map-legend" aria-hidden>
-            <span className="map-legend__swatch map-legend__swatch--low" /> low reach
+            <span className="map-legend__swatch map-legend__swatch--low" /> {t("live.legendLow")}
             <span className="map-legend__swatch map-legend__swatch--mid" />
-            <span className="map-legend__swatch map-legend__swatch--high" /> high reach
+            <span className="map-legend__swatch map-legend__swatch--high" /> {t("live.legendHigh")}
           </p>
-          <p className="muted">
-            Colour is reachability, not a hazard. Incoming alerts are the table on the right. Compose draws a new area over a labelled village.
-          </p>
+          <p className="lede">{t("live.mapHint")}</p>
         </div>
-        <section className="panel table live-table" aria-label="Alerts">
+        <section className="panel table live-table" aria-label={t("live.title")}>
           <div className="table__head" role="row">
-            <span role="columnheader">ID</span>
-            <span role="columnheader">Severity</span>
-            <span role="columnheader">Headline</span>
-            <span role="columnheader">Source</span>
-            <span role="columnheader">Status</span>
-            <span role="columnheader">Effective</span>
+            <span role="columnheader">{t("live.colId")}</span>
+            <span role="columnheader">{t("live.colSeverity")}</span>
+            <span role="columnheader">{t("live.colHeadline")}</span>
+            <span role="columnheader">{t("live.colSource")}</span>
+            <span role="columnheader">{t("live.colStatus")}</span>
+            <span role="columnheader">{t("live.colWhen")}</span>
           </div>
           <div className="table__body table__body--virtual" ref={parentRef}>
-            {loading && <p className="muted table__empty">Loading…</p>}
+            {loading && <p className="muted table__empty">{t("live.loading")}</p>}
             {!loading && alerts.length === 0 && (
-              <p className="muted table__empty">No alerts.</p>
+              <p className="muted table__empty">{t("live.empty")}</p>
             )}
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualizer.getVirtualItems().map((item) => {
@@ -206,12 +233,12 @@ export function LiveOps({
                     <span className="mono muted">{a.id}</span>
                     <SeverityBadge severity={a.severity} />
                     <span className="table__headline">{a.headline}</span>
-                    <span className="mono muted table__source">
+                    <span className="muted table__source">
                       {a.source_id}
                       {a.is_authoritative && <ProvenanceChip kind="authoritative" />}
                     </span>
                     <span className={`status status--${a.lifecycle_status}`}>
-                      {a.lifecycle_status}
+                      {lookup(t, "life", a.lifecycle_status)}
                     </span>
                     <time className="mono muted" dateTime={a.effective_at}>
                       {relative(a.effective_at)}
@@ -222,10 +249,10 @@ export function LiveOps({
             </div>
           </div>
         </section>
-        <aside className="panel live-feed" aria-label="Live delivery feed">
-          <p className="screen__kicker">Delivery events</p>
-          <h3>Live feed</h3>
-          {feed.length === 0 && <p className="muted">Waiting for acknowledgements.</p>}
+        <aside className="panel live-feed" aria-label={t("live.feedTitle")}>
+          <p className="screen__kicker">{t("live.feedKicker")}</p>
+          <h3>{t("live.feedTitle")}</h3>
+          {feed.length === 0 && <p className="muted">{t("live.feedEmpty")}</p>}
           <ol className="live-feed__list">
             {feed.map((item) => {
               const rowKey = `${item.delivery_id}-${item.event_type}-${item.occurred_at}`;
@@ -235,9 +262,9 @@ export function LiveOps({
                   <time className="mono muted" dateTime={item.occurred_at}>
                     {relative(item.occurred_at)}
                   </time>
-                  <span className="live-feed__verb">{feedLabel(item.event_type)}</span>
+                  <span className="live-feed__verb">{lookup(t, "feed", item.event_type)}</span>
                   <span className="live-feed__head">{item.headline}</span>
-                  <span className="mono muted">{item.channel_code}</span>
+                  <span className="muted">{lookup(t, "channel", item.channel_code)}</span>
                 </button>
               </li>
               );

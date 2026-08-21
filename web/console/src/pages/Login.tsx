@@ -1,14 +1,10 @@
-/** Login.
- *
- * Deliberately plain. Part 0.4.8 forbids the "generic-SaaS landing aesthetic —
- * gradient hero, glassmorphism, floating cards", and a login screen is exactly
- * where that instinct usually wins. One angular panel, one accent, no hero.
- */
-
 import { useState } from "react";
 import { ApiError, endpoints } from "../lib/api";
+import { useT } from "../lib/i18n";
+import { LangSwitcher } from "../components/LangSwitcher";
 
 export function Login({ onAuthed }: { onAuthed: () => void }) {
+  const { t } = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,15 +18,12 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
       await endpoints.login(email, password);
       onAuthed();
     } catch (err) {
-      // The API returns one uniform 401 for every credential failure, on
-      // purpose (account enumeration). The UI must not invent a more specific
-      // message than the server was willing to give.
       if (err instanceof ApiError && err.status === 401) {
-        setError("Those credentials were not accepted.");
+        setError(t("login.bad"));
       } else if (err instanceof ApiError && err.status === 503) {
-        setError("Authentication is not configured on this server.");
+        setError(t("login.down"));
       } else {
-        setError("Could not reach the API.");
+        setError(t("login.offline"));
       }
     } finally {
       setBusy(false);
@@ -40,15 +33,18 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   return (
     <main className="login">
       <form className="login__panel panel panel--raised" onSubmit={submit}>
+        <div className="login__lang">
+          <LangSwitcher />
+        </div>
         <div className="login__brand">
           <span className="topbar__mark" aria-hidden />
-          <p className="screen__kicker">Authorized access</p>
-          <h1>SETU</h1>
+          <p className="screen__kicker">{t("login.kicker")}</p>
+          <h1>{t("login.title")}</h1>
         </div>
-        <p className="muted">Operations console</p>
+        <p className="lede">{t("login.subtitle")}</p>
 
         <label className="field">
-          <span>Email</span>
+          <span>{t("login.email")}</span>
           <input
             type="email"
             autoComplete="username"
@@ -59,7 +55,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
         </label>
 
         <label className="field">
-          <span>Password</span>
+          <span>{t("login.password")}</span>
           <input
             type="password"
             autoComplete="current-password"
@@ -76,13 +72,10 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
         )}
 
         <button className="btn btn--primary" disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? t("login.busy") : t("login.submit")}
         </button>
 
-        <p className="muted login__note">
-          Accounts are provisioned by an administrator. There is no
-          self-registration on a system that can order an evacuation.
-        </p>
+        <p className="muted login__note">{t("login.note")}</p>
       </form>
     </main>
   );

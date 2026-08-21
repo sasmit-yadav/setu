@@ -46,20 +46,20 @@
   --s6: 32px;
 
   /* ── type ─────────────────────────────────────────────────────────── */
-  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  --font-ui: "Inter", "Noto Sans Malayalam", "Noto Sans Devanagari", system-ui, -apple-system, sans-serif;
   /* JetBrains Mono with tabular-nums for EVERY count, timestamp and
    * duration. Part 11.1 calls this non-negotiable, and 11.3 explains why:
    * proportional digits reflow column widths on every WebSocket tick, so a
    * live table visibly jitters. */
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
 
-  --fs-xs: 11px;
-  --fs-sm: 12px;
-  --fs-base: 14px; /* console body is 14-16px; the citizen PWA is 18px min */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
   --fs-md: 16px;
-  --fs-lg: 20px;
+  --fs-lg: 22px;
   --fs-xl: 28px;
-  --fs-kpi: 34px;
+  --fs-kpi: 32px;
 
   /* ── motion: information only, never decoration (Part 0.5) ────────── */
   --dur-fast: 120ms;

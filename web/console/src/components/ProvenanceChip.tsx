@@ -1,68 +1,26 @@
-/** Provenance chips (Part 11.1).
- *
- * All five answer one question: where did this actually come from? They share
- * a visual family on purpose — an officer who learns to read the SIM badge has
- * already learned to read HUMAN and PEER.
- *
- * Part 0.4.8 forbids emoji as iconography anywhere, so the "⇄" for peer relay
- * is drawn with lucide's ArrowLeftRight rather than a character that renders
- * differently on every platform and reads as an emoji to a screen reader.
- */
-
 import { ArrowLeftRight, CircleDot, FlaskConical, ShieldCheck, User } from "lucide-react";
+import { useT } from "../lib/i18n";
 
 const KINDS = {
-  simulated: {
-    cls: "chip--sim",
-    label: "SIM",
-    Icon: FlaskConical,
-    title: "Simulated carrier — flagged simulated=true in the database",
-  },
-  humanRelay: {
-    cls: "chip--human",
-    label: "HUMAN",
-    Icon: User,
-    // Rule 9: a human attestation is never rendered as a digital receipt.
-    title: "Confirmed by a person, not a digital receipt",
-  },
-  peerRelay: {
-    cls: "chip--peer",
-    label: "PEER",
-    Icon: ArrowLeftRight,
-    title: "Received via a nearby device, signature verified",
-  },
-  bootstrapML: {
-    cls: "chip--bootstrap",
-    label: "BOOTSTRAP",
-    Icon: FlaskConical,
-    title: "Model trained on a published physical process, not on outcomes",
-  },
-  authoritative: {
-    cls: "chip--auto",
-    label: "AUTO-AUTH",
-    Icon: ShieldCheck,
-    // Rule 12: the seismograph is the second pair of eyes.
-    title: "Approved by an authoritative source, not a human",
-  },
-  live: {
-    cls: "chip--peer",
-    label: "LIVE",
-    Icon: CircleDot,
-    title: "Streaming from the server",
-  },
+  simulated: { cls: "chip--sim", label: "chip.simulated", title: "chip.simulatedTitle", Icon: FlaskConical },
+  humanRelay: { cls: "chip--human", label: "chip.humanRelay", title: "chip.humanRelayTitle", Icon: User },
+  peerRelay: { cls: "chip--peer", label: "chip.peerRelay", title: "chip.peerRelayTitle", Icon: ArrowLeftRight },
+  bootstrapML: { cls: "chip--bootstrap", label: "chip.bootstrapML", title: "chip.bootstrapMLTitle", Icon: FlaskConical },
+  authoritative: { cls: "chip--auto", label: "chip.authoritative", title: "chip.authoritativeTitle", Icon: ShieldCheck },
+  live: { cls: "chip--peer", label: "chip.live", title: "chip.liveTitle", Icon: CircleDot },
 } as const;
 
 export type ProvenanceKind = keyof typeof KINDS;
 
 export function ProvenanceChip({ kind }: { kind: ProvenanceKind }) {
+  const { t } = useT();
   const { cls, label, Icon, title } = KINDS[kind];
+  const meaning = t(title);
   return (
-    <span className={`chip ${cls}`} title={title}>
+    <span className={`chip ${cls}`} title={meaning}>
       <Icon size={11} aria-hidden />
-      {label}
-      {/* The tooltip is not accessible on its own, so the meaning is also
-          available to assistive tech. */}
-      <span className="sr-only">. {title}</span>
+      {t(label)}
+      <span className="sr-only">. {meaning}</span>
     </span>
   );
 }

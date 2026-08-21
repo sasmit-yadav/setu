@@ -5,6 +5,7 @@ import {
   type AfterAction,
   type IncidentSummary,
 } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 import { Kpi } from "../components/Kpi";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 import { RiskDial } from "../components/RiskDial";
@@ -37,8 +38,8 @@ type BoardPayload = {
   }>;
 };
 
-function pct(value: number | null): string {
-  return value == null ? "n/a" : `${value}%`;
+function pct(value: number | null, t: (k: string) => string): string {
+  return value == null ? t("common.nA") : `${value}%`;
 }
 
 export function CommandBoard({
@@ -46,6 +47,7 @@ export function CommandBoard({
 }: {
   onIncident: (id: number) => void;
 }) {
+  const { t } = useT();
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [board, setBoard] = useState<BoardPayload | null>(null);
@@ -64,7 +66,7 @@ export function CommandBoard({
       });
       setError(null);
     } catch {
-      setError("Could not load the command board.");
+      setError(t("board.loadError"));
     }
   }
 
@@ -90,13 +92,13 @@ export function CommandBoard({
       } else {
         setError(
           nextBoard.reason instanceof ApiError && nextBoard.reason.status === 403
-            ? "You do not have access to this board."
-            : "Could not load the command board.",
+            ? t("board.forbidden")
+            : t("board.loadError"),
         );
       }
       if (nextAfter.status === "fulfilled") setAfter(nextAfter.value);
     })();
-  }, [selected]);
+  }, [selected, t]);
 
   const reach = board?.reachability ?? [];
   const dark = board?.no_relay_coverage ?? [];
@@ -109,12 +111,12 @@ export function CommandBoard({
     <div className="screen">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Common operating picture</p>
-          <h2>Command Board</h2>
+          <p className="screen__kicker">{t("board.kicker")}</p>
+          <h2>{t("board.title")}</h2>
         </div>
         {selected != null && (
           <button className="btn btn--ghost" onClick={() => onIncident(selected)}>
-            Open incident
+            {t("board.openEmergency")}
           </button>
         )}
       </header>
@@ -123,22 +125,22 @@ export function CommandBoard({
           {error}
         </p>
       )}
-      <section className="kpis" aria-label="Board totals">
-        <Kpi label="Open incidents" value={incidents.length} />
+      <section className="kpis" aria-label={t("board.totals")}>
+        <Kpi label={t("board.openIncidents")} value={incidents.length} />
         {board && (
           <>
             <Kpi
-              label="Queue depth"
+              label={t("board.queueDepth")}
               value={board.queue_depth}
               tone={board.queue_depth ? "warn" : "ok"}
             />
             <Kpi
-              label="HUMAN confirmations"
+              label={t("board.humanConfirms")}
               value={board.human_confirmations}
               tone={board.human_confirmations ? "info" : undefined}
             />
             <Kpi
-              label="No relay coverage"
+              label={t("board.noRunner")}
               value={dark.length}
               tone={dark.length ? "danger" : "ok"}
             />
@@ -146,15 +148,15 @@ export function CommandBoard({
         )}
       </section>
 
-      <section className="panel table board__incidents" aria-label="Incidents">
+      <section className="panel table board__incidents" aria-label={t("board.openIncidents")}>
         <div className="table__head board__incidents-head">
-          <span>Label</span>
-          <span>Type</span>
-          <span>Status</span>
-          <span>Opened</span>
+          <span>{t("board.colLabel")}</span>
+          <span>{t("board.colType")}</span>
+          <span>{t("board.colStatus")}</span>
+          <span>{t("board.colOpened")}</span>
         </div>
         {!incidents.length && (
-          <p className="muted table__empty">No incidents.</p>
+          <p className="muted table__empty">{t("board.empty")}</p>
         )}
         {incidents.map((row) => (
           <button
@@ -162,11 +164,11 @@ export function CommandBoard({
             className={`table__row board__incidents-row${selected === row.id ? " is-selected" : ""}`}
             onClick={() => setSelected(row.id)}
             aria-pressed={selected === row.id}
-            aria-label={`Select incident ${row.label}`}
+            aria-label={t("board.selectIncident", { label: row.label })}
           >
             <span>{row.label}</span>
-            <span className="mono muted">{row.incident_type}</span>
-            <span>{row.status}</span>
+            <span className="muted">{row.incident_type}</span>
+            <span>{lookup(t, "life", row.status)}</span>
             <time className="mono muted">{row.opened_at}</time>
           </button>
         ))}
@@ -174,15 +176,20 @@ export function CommandBoard({
 
       {current && (
         <p className="board__ribbon muted">
-          {current.label} · {current.status} · {current.origin_source} · versions {current.version_count}
+          {t("board.ribbon", {
+            label: current.label,
+            status: lookup(t, "life", current.status),
+            source: current.origin_source,
+            versions: current.version_count,
+          })}
         </p>
       )}
 
       <div className="board__cop">
-        <section className="panel detail__box" aria-label="Highest-risk units">
-          <h3>Highest-risk units</h3>
+        <section className="panel detail__box" aria-label={t("board.hardest")}>
+          <h3>{t("board.hardest")}</h3>
           <p className="muted">
-            {worst.length ? `${worst.length} units ranked from communication vulnerability.` : "No vulnerability ranking for this incident yet."}
+            {worst.length ? t("board.hardestNote", { n: worst.length }) : t("board.hardestEmpty")}
           </p>
           <ul className="board__cards">
             {worst.map((item) => (
@@ -190,43 +197,49 @@ export function CommandBoard({
                 <RiskDial
                   value={item.historical_reach_pct}
                   label={item.name}
-                  note={`fallback ${item.recommended_fallback}`}
+                  note={t("board.fallback", {
+                    action: lookup(t, "fallback", item.recommended_fallback),
+                  })}
                 />
-                <span className="muted">{item.primary_factors.join(", ")}</span>
+                <span className="muted">
+                  {item.primary_factors.map((f) => lookup(t, "factor", f)).join(", ")}
+                </span>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="panel detail__box" aria-label="Units with no relay coverage">
-          <h3>Last-resort gaps</h3>
+        <section className="panel detail__box" aria-label={t("board.gaps")}>
+          <h3>{t("board.gaps")}</h3>
           {!dark.length ? (
-            <p className="ok">Every listed unit has a registered relay node.</p>
+            <p className="ok">{t("board.gapsOk")}</p>
           ) : (
             <ul className="board__gaps">
               {dark.map((item) => (
                 <li key={item.unit_id}>
                   <strong>{item.name}</strong>
-                  <span className="danger"> unreachable — no relay coverage</span>
+                  <span className="danger"> {t("board.gapsBad")}</span>
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        <section className="panel detail__box" aria-label="Reachability">
-          <h3>Reachability</h3>
-          <p className="muted">
-            {reach.length} units with a figure. Every percentage is labelled with its geometry level.
-          </p>
+        <section className="panel detail__box" aria-label={t("board.reach")}>
+          <h3>{t("board.reach")}</h3>
+          <p className="muted">{t("board.reachNote", { n: reach.length })}</p>
           <button className="btn btn--ghost" onClick={() => setShowReach((open) => !open)}>
-            {showReach ? "Hide unit rows" : "Show unit rows"}
+            {showReach ? t("board.hideRows") : t("board.showRows")}
           </button>
           {showReach && (
             <ul>
               {reach.map((item) => (
                 <li key={item.unit_id}>
-                  {item.name} · ADM{item.geometry_level} · registered {pct(item.recipient_reach_pct)} · population {pct(item.population_reach_pct)}
+                  {t("board.reachRow", {
+                    name: item.name,
+                    reg: pct(item.recipient_reach_pct, t),
+                    pop: pct(item.population_reach_pct, t),
+                  })}
                 </li>
               ))}
             </ul>
@@ -234,34 +247,33 @@ export function CommandBoard({
           {Boolean(board?.human_confirmations) && <ProvenanceChip kind="humanRelay" />}
         </section>
 
-        <section className="panel detail__box" aria-label="Per-channel assurance">
-          <h3>Per-channel assurance</h3>
+        <section className="panel detail__box" aria-label={t("board.channels")}>
+          <h3>{t("board.channels")}</h3>
           {!channels.length ? (
-            <p className="muted">No deliveries on this incident yet.</p>
+            <p className="muted">{t("board.channelsEmpty")}</p>
           ) : (
             <ul className="board__channels">
               {channels.map((item) => (
                 <li key={item.channel_code} className="board__channel">
-                  <strong className="mono">{item.channel_code}</strong>
-                  <span>{item.deliveries} deliveries</span>
-                  <span className="muted">sim {item.simulated}</span>
-                  <span className="muted">max tier {item.max_assurance}</span>
+                  <strong>{lookup(t, "channel", item.channel_code)}</strong>
+                  <span>{t("board.channelLine", { n: item.deliveries })}</span>
+                  <span className="muted">{t("board.channelSim", { n: item.simulated })}</span>
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        <section className="panel detail__box board__recs" aria-label="After-action recommendations">
-          <h3>After-action</h3>
+        <section className="panel detail__box board__recs" aria-label={t("board.after")}>
+          <h3>{t("board.after")}</h3>
           {!recs.length ? (
-            <p className="muted">No recommendations yet.</p>
+            <p className="muted">{t("board.afterEmpty")}</p>
           ) : (
             <ul className="board__rec-list">
               {recs.map((rec) => (
                 <li key={rec.id}>
                   <p>{rec.recommendation}</p>
-                  <p className="mono muted">
+                  <p className="muted">
                     {rec.measurement}: {rec.value}
                     {rec.denominator != null ? ` / ${rec.denominator}` : ""}
                   </p>

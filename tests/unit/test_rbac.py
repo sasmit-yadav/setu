@@ -441,6 +441,25 @@ async def test_ack_and_citizen_delivery_roles(client, db_conn, role, expected):
     assert delivery.status_code == expected, f"delivery {role} -> {delivery.status_code}"
 
 
+async def test_citizen_inbox_returns_list(client, db_conn):
+    token = await _token(db_conn, CITIZEN)
+    r = await client.get(
+        "/api/v1/citizen/deliveries",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+async def test_auditor_cannot_list_citizen_inbox(client, db_conn):
+    token = await _token(db_conn, AUDITOR)
+    r = await client.get(
+        "/api/v1/citizen/deliveries",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 403
+
+
 async def test_ack_without_token_is_401(client):
     r = await client.post(
         "/api/v1/ack",

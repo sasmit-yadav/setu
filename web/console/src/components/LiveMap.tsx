@@ -427,5 +427,5 @@ export function LiveMap({
     };
   }, []);
 
-  return <div ref={ref} className="live-map" role="img" aria-label="Live delivery map" />;
+  return <div ref={ref} className="live-map" role="img" aria-label="Map of villages" />;
 }

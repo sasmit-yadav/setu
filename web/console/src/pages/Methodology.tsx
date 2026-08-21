@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { endpoints } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 
 export function Methodology() {
+  const { t } = useT();
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -10,10 +12,10 @@ export function Methodology() {
       try {
         setData(await endpoints.methodology());
       } catch {
-        setError("Could not load methodology.");
+        setError(t("method.loadError"));
       }
     })();
-  }, []);
+  }, [t]);
 
   const capability = Array.isArray(data?.channel_capability) ? data.channel_capability : [];
   const limitations = Array.isArray(data?.limitations) ? data.limitations : [];
@@ -23,22 +25,22 @@ export function Methodology() {
     <div className="screen">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Accountability</p>
-          <h2>Methodology</h2>
+          <p className="screen__kicker">{t("method.kicker")}</p>
+          <h2>{t("method.title")}</h2>
         </div>
       </header>
       {error && <p className="danger" role="alert" aria-live="polite">{error}</p>}
-      <section className="panel detail__box" aria-label="Channel capability">
-        <h3>Channel capability</h3>
+      <section className="panel detail__box" aria-label={t("method.channels")}>
+        <h3>{t("method.channels")}</h3>
         <table className="method-table">
-          <caption className="sr-only">Channel assurance capability by tier</caption>
+          <caption className="sr-only">{t("method.channels")}</caption>
           <thead>
             <tr>
-              <th>Channel</th>
-              <th>Tier</th>
-              <th>Supported</th>
-              <th>Evidence</th>
-              <th>Reason</th>
+              <th>{t("method.colChannel")}</th>
+              <th>{t("method.colTier")}</th>
+              <th>{t("method.colSupported")}</th>
+              <th>{t("method.colEvidence")}</th>
+              <th>{t("method.colReason")}</th>
             </tr>
           </thead>
           <tbody>
@@ -52,9 +54,9 @@ export function Methodology() {
               };
               return (
                 <tr key={`${item.channel_code}-${item.tier}-${index}`}>
-                  <td className="mono">{item.channel_code}</td>
-                  <td>{item.tier}</td>
-                  <td>{item.supported ? "yes" : "no"}</td>
+                  <td>{lookup(t, "channel", item.channel_code)}</td>
+                  <td>{lookup(t, "ladder", item.tier)}</td>
+                  <td>{item.supported ? t("method.yes") : t("method.no")}</td>
                   <td className="muted">{item.evidence_source ?? "—"}</td>
                   <td className="muted">{item.not_applicable_reason ?? "—"}</td>
                 </tr>
@@ -63,22 +65,22 @@ export function Methodology() {
           </tbody>
         </table>
       </section>
-      <section className="panel detail__box" aria-label="Published models">
-        <h3>Models</h3>
+      <section className="panel detail__box" aria-label={t("method.models")}>
+        <h3>{t("method.models")}</h3>
         <table className="method-table">
-          <caption className="sr-only">Registered models with published metrics</caption>
+          <caption className="sr-only">{t("method.models")}</caption>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Version</th>
-              <th>Bootstrap</th>
-              <th>Metrics</th>
+              <th>{t("method.colName")}</th>
+              <th>{t("method.colVersion")}</th>
+              <th>{t("method.colKind")}</th>
+              <th>{t("method.colMetrics")}</th>
             </tr>
           </thead>
           <tbody>
             {models.length === 0 ? (
               <tr>
-                <td colSpan={4} className="muted">No models registered yet. Run python scripts/eval_models.py after seeding.</td>
+                <td colSpan={4} className="muted">{t("method.noModels")}</td>
               </tr>
             ) : (
               models.map((row, index) => {
@@ -96,16 +98,16 @@ export function Methodology() {
                 const disclosure = metrics.disclosure;
                 return (
                   <tr key={`${item.name}-${item.version}-${index}`}>
-                    <td className="mono">{item.name}</td>
+                    <td>{item.name}</td>
                     <td className="mono">{item.version}</td>
-                    <td>{item.is_bootstrap ? "bootstrap" : "trained"}</td>
+                    <td>{item.is_bootstrap ? t("method.guess") : t("method.trained")}</td>
                     <td>
                       {precision != null || recall != null ? (
                         <span>
                           n={String(n ?? "—")} · P={String(precision ?? "—")} · R={String(recall ?? "—")} · F1={String(f1 ?? "—")}
                         </span>
                       ) : (
-                        <span className="muted">{disclosure ? String(disclosure) : "no held-out metrics yet"}</span>
+                        <span className="muted">{disclosure ? String(disclosure) : t("method.noModels")}</span>
                       )}
                       {disclosure ? <p className="muted">{String(disclosure)}</p> : null}
                     </td>
@@ -116,8 +118,8 @@ export function Methodology() {
           </tbody>
         </table>
       </section>
-      <section className="panel detail__box" aria-label="Published limitations">
-        <h3>Limitations</h3>
+      <section className="panel detail__box" aria-label={t("method.limits")}>
+        <h3>{t("method.limits")}</h3>
         <ul>
           {limitations.map((line) => (
             <li key={String(line)}>{String(line)}</li>

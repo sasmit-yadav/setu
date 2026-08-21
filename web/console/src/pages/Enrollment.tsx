@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { ApiError, endpoints, type EnrollmentImport } from "../lib/api";
+import { useT } from "../lib/i18n";
 
 export function Enrollment() {
+  const { t } = useT();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<EnrollmentImport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +22,9 @@ export function Enrollment() {
       setPreview(result);
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.code === "dry_run_required" ? "Run the dry-run preview first." : err.message);
+        setError(err.code === "dry_run_required" ? t("enroll.needPreview") : err.message);
       } else {
-        setError("Import failed.");
+        setError(t("enroll.fail"));
       }
     } finally {
       setBusy(null);
@@ -33,16 +35,14 @@ export function Enrollment() {
     <div className="screen">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Enrollment</p>
-          <h2>CSV import</h2>
+          <p className="screen__kicker">{t("enroll.kicker")}</p>
+          <h2>{t("enroll.title")}</h2>
         </div>
       </header>
       <section className="panel detail__box">
-        <p className="muted">
-          A live import is blocked until a matching dry-run preview exists for the same file.
-        </p>
+        <p className="lede">{t("enroll.lede")}</p>
         <label className="field">
-          <span>CSV file</span>
+          <span>{t("enroll.file")}</span>
           <input
             type="file"
             accept=".csv,text/csv"
@@ -54,21 +54,26 @@ export function Enrollment() {
         </label>
         <div className="detail__dispatch">
           <button className="btn" disabled={!file || busy !== null} onClick={() => void run(true)}>
-            {busy === "preview" ? "Previewing…" : "Dry-run preview"}
+            {busy === "preview" ? t("enroll.previewing") : t("enroll.preview")}
           </button>
           <button
             className="btn btn--danger"
             disabled={!file || !preview?.dry_run || !preview.preview_token || busy !== null}
             onClick={() => void run(false)}
           >
-            {busy === "commit" ? "Importing…" : "Commit import"}
+            {busy === "commit" ? t("enroll.committing") : t("enroll.commit")}
           </button>
         </div>
         {error && <p className="danger" role="alert">{error}</p>}
         {preview && (
-          <p className="mono">
-            rows {preview.total_rows} · inserted {preview.inserted} · skipped {preview.skipped} · rejected {preview.rejected}
-            {preview.dry_run ? " · dry-run" : " · committed"}
+          <p>
+            {t("enroll.summary", {
+              total: preview.total_rows,
+              inserted: preview.inserted,
+              skipped: preview.skipped,
+              rejected: preview.rejected,
+              mode: preview.dry_run ? t("enroll.dry") : t("enroll.saved"),
+            })}
           </p>
         )}
       </section>

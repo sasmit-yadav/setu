@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { endpoints, type RelayTask } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 
 export function RelayTasks() {
+  const { t } = useT();
   const [rows, setRows] = useState<RelayTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -13,7 +15,7 @@ export function RelayTasks() {
       setRows(await endpoints.relayTasks());
       setError(null);
     } catch {
-      setError("Could not load relay tasks.");
+      setError(t("relay.loadError"));
     }
   }
 
@@ -27,7 +29,7 @@ export function RelayTasks() {
       await endpoints.confirmRelayTask(id);
       await load();
     } catch {
-      setError("Could not confirm this relay.");
+      setError(t("relay.confirmFail"));
     } finally {
       setBusyId(null);
     }
@@ -37,33 +39,34 @@ export function RelayTasks() {
     <div className="screen">
       <header className="screen__head">
         <div>
-          <p className="screen__kicker">Last resort</p>
-          <h2>Relay tasks</h2>
+          <p className="screen__kicker">{t("relay.kicker")}</p>
+          <h2>{t("relay.title")}</h2>
         </div>
         <ProvenanceChip kind="humanRelay" />
       </header>
+      <p className="lede">{t("relay.lede")}</p>
       {error && <p className="danger" role="alert">{error}</p>}
-      <section className="panel table" aria-label="Relay tasks">
+      <section className="panel table" aria-label={t("relay.title")}>
         <div className="table__head relay__head" role="row">
-          <span>Unit</span>
-          <span>Severity</span>
-          <span>Headline</span>
-          <span>State</span>
+          <span>{t("relay.colUnit")}</span>
+          <span>{t("relay.colSeverity")}</span>
+          <span>{t("relay.colHeadline")}</span>
+          <span>{t("relay.colState")}</span>
           <span />
         </div>
-        {rows.length === 0 && <p className="muted table__empty">No open relay tasks.</p>}
+        {rows.length === 0 && <p className="muted table__empty">{t("relay.empty")}</p>}
         {rows.map((row) => (
           <div key={row.id} className="table__row relay__row" role="row">
             <span>{row.unit_name}</span>
             <SeverityBadge severity={row.severity} />
             <span>{row.headline}</span>
-            <span className="mono muted">{row.state}</span>
+            <span className="muted">{lookup(t, "state", row.state)}</span>
             <button
               className="btn btn--approve"
               disabled={busyId === row.id}
               onClick={() => void confirm(row.id)}
             >
-              {busyId === row.id ? "Confirming…" : "Confirm in person"}
+              {busyId === row.id ? t("relay.confirming") : t("relay.confirm")}
             </button>
           </div>
         ))}

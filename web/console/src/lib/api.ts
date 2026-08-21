@@ -11,9 +11,25 @@
  * read is a worse trade on a system that can order an evacuation.
  */
 
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 const ACCESS_KEY = "setu.console.access";
 let memoryRefresh: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
+
+function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
+export function opsSocketUrl(token: string): string {
+  const path = `/api/v1/ws/ops?token=${encodeURIComponent(token)}`;
+  if (API_BASE) {
+    const u = new URL(API_BASE);
+    const protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${u.host}${path}`;
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}${path}`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -47,7 +63,7 @@ async function rotateRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   const current = memoryRefresh;
   refreshInFlight = (async () => {
-    const res = await fetch("/api/v1/auth/refresh", {
+    const res = await fetch(apiUrl("/api/v1/auth/refresh"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: current }),
@@ -77,7 +93,7 @@ async function request<T>(
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(apiUrl(path), { ...init, headers });
 
   if (res.status === 204) return undefined as T;
 
@@ -399,7 +415,20 @@ export const endpoints = {
   },
   me: () => api.get<Me>("/api/v1/auth/me"),
   publicConfig: () => api.get<PublicConfig>("/api/v1/public/config"),
-  alerts: () => api.get<AlertSummary[]>("/api/v1/alerts"),
+  alerts: (opts?: {
+    lifecycle_status?: string;
+    source_id?: string;
+    authoritative?: boolean;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (opts?.lifecycle_status) q.set("lifecycle_status", opts.lifecycle_status);
+    if (opts?.source_id) q.set("source_id", opts.source_id);
+    if (opts?.authoritative != null) q.set("authoritative", String(opts.authoritative));
+    if (opts?.limit != null) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return api.get<AlertSummary[]>(`/api/v1/alerts${qs ? `?${qs}` : ""}`);
+  },
   alert: (id: number) => api.get<AlertDetail>(`/api/v1/alerts/${id}`),
   createAlert: (body: Record<string, unknown>) =>
     api.post<{ alert_id: number; incident_id: number; target_count: number; lifecycle_status: string }>(
@@ -456,7 +485,7 @@ export const endpoints = {
     body.append("file", file);
     const query = new URLSearchParams({ dry_run: dryRun ? "true" : "false" });
     if (previewToken) query.set("preview_token", previewToken);
-    const res = await fetch(`/api/v1/admin/recipients/import?${query.toString()}`, {
+    const res = await fetch(apiUrl(`/api/v1/admin/recipients/import?${query.toString()}`), {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body,
@@ -475,7 +504,7 @@ export const endpoints = {
   },
   reportPdf: async (id: number) => {
     const token = getToken();
-    const res = await fetch(`/api/v1/alerts/${id}/report.pdf`, {
+    const res = await fetch(apiUrl(`/api/v1/alerts/${id}/report.pdf`), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new ApiError(res.status, "pdf_failed", null);

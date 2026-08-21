@@ -135,14 +135,13 @@ button {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  padding: 1px var(--s2);
-  font-family: var(--font-mono);
+  padding: 2px var(--s2);
   font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
   border: 1px dashed var(--state-neutral);
   color: var(--text-secondary);
   background: transparent;
+  white-space: nowrap;
 }
 
 .chip--sim     { border-color: var(--state-neutral); color: var(--state-neutral); }

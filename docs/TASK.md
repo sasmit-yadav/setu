@@ -14,14 +14,15 @@ For "how does the system work / why is it built this way," see
 green, `ruff check services/` clean.
 
 **Now running in production** on four free-tier services at ₹0 —
-PWA https://setucitizen.vercel.app · API https://setu-api-6ujx.onrender.com ·
-Neon · Upstash. Verified against the live stack, not assumed: real login →
-236-char JWT, `/auth/me` returning the correct officer scope, 39 PostGIS village
-features clipped to Vythiri, `sw.js` served as `application/javascript` (the
-rewrite guard holding), CORS admitting the Vercel origin, and the worker reading
-and acking a probe entry off the deployed Upstash stream. See
-`docs/IMPLEMENTATION.md` §6.14 for the topology and the eight things that broke
-getting there.
+PWA https://setucitizen.vercel.app · console https://setuconsole.vercel.app ·
+API https://setu-api-6ujx.onrender.com · Neon · Upstash. Verified against the
+live stack, not assumed: real login → 236-char JWT, `/auth/me` returning the
+correct officer scope, 39 PostGIS village features clipped to Vythiri, `sw.js`
+served as `application/javascript` (the rewrite guard holding), CORS admitting
+the Vercel origins, and the worker reading and acking a probe entry off the
+deployed Upstash stream. See `docs/IMPLEMENTATION.md` §6.14 for the topology
+and the eight things that broke getting there; **§6.16** for the citizen
+village inbox (no typed delivery ID) and the officer language pack.
 
 ⚠️ **`fcm_send` is still 0.** The primary channel is the one thing still
 unproven, and it needs a human to grant notification permission on a handset.
@@ -54,6 +55,7 @@ project; **live Twilio SMS proven end to end** — real `provider_accepted` (`tw
 | Component | Host | URL |
 |---|---|---|
 | Citizen PWA | Vercel | https://setucitizen.vercel.app |
+| Officer console | Vercel | https://setuconsole.vercel.app |
 | API | Render free web | https://setu-api-6ujx.onrender.com |
 | Postgres + PostGIS | Neon (Singapore) | at `0014`, 8,302 units, 4 recipients |
 | Redis Streams | Upstash (Singapore) | probe read + acked |
@@ -270,9 +272,10 @@ one piece you have to remember:
 python run.py worker-cloud       # KEEP THIS TERMINAL OPEN — it does the sending
 ```
 
-Everything else — API, PWA, database, queue — is already running in the cloud.
-The ops console still runs locally on `:5173`, which is why `localhost:5173`
-must stay in `CORS_ALLOWED_ORIGINS`.
+Everything else — API, PWA, ops console, database, queue — is already running
+in the cloud. Render `CORS_ALLOWED_ORIGINS` must include both Vercel origins
+(`https://setucitizen.vercel.app,https://setuconsole.vercel.app`) with **no
+trailing slash**, plus `http://localhost:5173` / `:5174` for local Vite.
 
 ---
 

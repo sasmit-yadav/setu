@@ -3,8 +3,9 @@
 Four free-tier services, one repo. Total cost **₹0**.
 
 ```
-Vercel  ──  citizen PWA (HTTPS, static)      ─┐
-Render  ──  API + delivery worker             ├─ Neon (Postgres+PostGIS)
+Vercel  ──  citizen PWA  (HTTPS, static)     ─┐
+Vercel  ──  officer console (HTTPS, static)  ─┤
+Render  ──  API                              ├─ Neon (Postgres+PostGIS)
 HF Space ── services/ml (torch, IndicTrans2) ─┘   Upstash (Redis)
 ```
 
@@ -183,6 +184,29 @@ you cannot know the origin until Vercel assigns it.
 > ```
 >
 > JSON has no comment syntax, so the reasoning has to sit outside the file.
+
+## 3b. Vercel — officer console
+
+Same account, **second** Vercel project. Root Directory `web/console`.
+Live: `https://setuconsole.vercel.app`.
+
+**3b.1** Build-time env (baked into the bundle, same rule as the PWA):
+
+| Key | Value |
+|---|---|
+| `VITE_API_BASE` | `https://<your-render-api>.onrender.com` (no trailing slash) |
+
+Local `npm run dev` leaves this empty so Vite's `/api` proxy still hits
+`:8000`. The ops WebSocket (`/api/v1/ws/ops`) uses the same host as
+`VITE_API_BASE` when it is set.
+
+**3b.2** `vercel.json` rewrites every path to `index.html` except `/assets/`
+and `/tiles/` (the India z6 pmtiles extract). No service worker on this app.
+
+**3b.3** Add `https://setuconsole.vercel.app` to Render `CORS_ALLOWED_ORIGINS`
+next to the citizen origin. No trailing slash — same trap as §3.3 /
+IMPLEMENTATION §6.14 #7. Until that env is saved, the hosted console loads
+but login is blocked by the browser with nothing in the API logs.
 
 ---
 

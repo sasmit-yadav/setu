@@ -8,6 +8,7 @@ import {
   type PublicConfig,
   type ValidateResponse,
 } from "../lib/api";
+import { lookup, useT } from "../lib/i18n";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { QualityGate } from "../components/QualityGate";
 import { ApprovalPanel } from "../components/ApprovalPanel";
@@ -30,6 +31,7 @@ export function AlertDetail({
   onIncident?: (incidentId: number) => void;
   onOpen?: (alertId: number) => void;
 }) {
+  const { t } = useT();
   const [alert, setAlert] = useState<AlertDetailT | null>(null);
   const [gate, setGate] = useState<ValidateResponse | null>(null);
   const [assurance, setAssurance] = useState<AssuranceResponse | null>(null);
@@ -63,7 +65,7 @@ export function AlertDetail({
       setGate(await endpoints.validate(id));
       setNotice(null);
     } catch {
-      setNotice({ tone: "danger", text: "Could not run the quality gate." });
+      setNotice({ tone: "danger", text: t("gate.runError") });
     } finally {
       setBusy(null);
     }
@@ -77,7 +79,7 @@ export function AlertDetail({
       setSelfApproved(true);
       setNotice(null);
     } catch {
-      setNotice({ tone: "danger", text: "Could not record the approval." });
+      setNotice({ tone: "danger", text: t("approval.fail") });
     } finally {
       setBusy(null);
     }
@@ -90,7 +92,7 @@ export function AlertDetail({
       const res = await endpoints.dispatch(id);
       setNotice({
         tone: "ok",
-        text: `Dispatched to ${res.recipient_count.toLocaleString()} recipients.`,
+        text: t("alert.sentOk", { n: res.recipient_count.toLocaleString() }),
       });
       await refresh();
     } catch (err) {
@@ -107,14 +109,14 @@ export function AlertDetail({
               message: f.message,
             })),
           });
-          setNotice({ tone: "danger", text: "Dispatch blocked by the quality gate." });
+          setNotice({ tone: "danger", text: t("gate.blockedDispatch") });
         } else if (err.code === "approval_quorum" || err.code === "approval_required") {
           setApprovals({ have: Number(d?.have ?? 0), need: Number(d?.need ?? 0) });
-          setNotice({ tone: "danger", text: "Dispatch blocked — authorization incomplete." });
+          setNotice({ tone: "danger", text: t("alert.authIncomplete") });
         } else if (err.code === "unit_scope") {
-          setNotice({ tone: "danger", text: "This alert is outside your district." });
+          setNotice({ tone: "danger", text: t("alert.outOfDistrict") });
         } else {
-          setNotice({ tone: "danger", text: `Dispatch failed (${err.code}).` });
+          setNotice({ tone: "danger", text: t("alert.sendFail", { code: err.code }) });
         }
       }
     } finally {
@@ -124,7 +126,7 @@ export function AlertDetail({
 
   async function escalate() {
     if (!changeReason.trim()) {
-      setNotice({ tone: "danger", text: "A change reason is required to open a new version." });
+      setNotice({ tone: "danger", text: t("alert.reasonNeeded") });
       return;
     }
     setBusy("version");
@@ -136,7 +138,7 @@ export function AlertDetail({
       });
       if (onOpen) onOpen(created.alert_id);
     } catch {
-      setNotice({ tone: "danger", text: "Could not create a new version." });
+      setNotice({ tone: "danger", text: t("alert.versionFail") });
     } finally {
       setBusy(null);
     }
@@ -153,13 +155,13 @@ export function AlertDetail({
       link.click();
       URL.revokeObjectURL(url);
     } catch {
-      setNotice({ tone: "danger", text: "Could not generate the audit PDF." });
+      setNotice({ tone: "danger", text: t("alert.pdfFail") });
     } finally {
       setBusy(null);
     }
   }
 
-  if (!alert) return <div className="screen"><p className="muted">Loading…</p></div>;
+  if (!alert) return <div className="screen"><p className="muted">{t("alert.loading")}</p></div>;
 
   const gateBlocks = gate?.blocked ?? false;
   const have = approvals?.have ?? alert.approval_have;
@@ -191,63 +193,61 @@ export function AlertDetail({
     <div className="screen">
       <header className="screen__head">
         <button className="btn btn--ghost" onClick={onBack}>
-          <ArrowLeft size={14} aria-hidden /> Back
+          <ArrowLeft size={14} aria-hidden /> {t("alert.back")}
         </button>
         <div>
-          <p className="screen__kicker">Alert</p>
+          <p className="screen__kicker">{t("alert.kicker")}</p>
           <h2>
             <span className="mono muted">#{alert.id}</span> {alert.headline}
           </h2>
         </div>
         <SeverityBadge severity={alert.severity} />
         <span className={`status status--${alert.lifecycle_status}`}>
-          {alert.lifecycle_status}
+          {lookup(t, "life", alert.lifecycle_status)}
         </span>
         {alert.incident_id && onIncident && (
           <button className="btn btn--ghost" onClick={() => onIncident(alert.incident_id!)}>
-            Incident
+            {t("alert.emergency")}
           </button>
         )}
         <button className="btn btn--ghost" onClick={() => void downloadPdf()} disabled={busy !== null}>
-          Audit PDF
+          {t("alert.pdf")}
         </button>
       </header>
 
       <p className="alert__body">{alert.body}</p>
 
-      <section className="kpis" aria-label="Delivery summary">
-        <Kpi label="Targeted" value={alert.target_count} />
-        <Kpi label="Deliveries" value={deliveries.length} />
+      <section className="kpis" aria-label={t("alert.proof")}>
+        <Kpi label={t("alert.kpiTargeted")} value={alert.target_count} />
+        <Kpi label={t("alert.kpiSends")} value={deliveries.length} />
         {reachedFloor != null && (
           <Kpi
-            label="Device delivered"
+            label={t("alert.kpiPhone")}
             value={reached}
             tone="info"
-            note={`tier ${reachedFloor}+ — provider acceptance alone does not count`}
+            note={t("alert.kpiPhoneNote")}
           />
         )}
         {ackedFloor != null && (
-          <Kpi label="Acknowledged" value={acked} tone={acked ? "ok" : undefined} />
+          <Kpi label={t("alert.kpiAcked")} value={acked} tone={acked ? "ok" : undefined} />
         )}
       </section>
 
       <div className="detail__cols">
         <div className="detail__col">
           <div className="panel detail__box">
-            <h3>Pre-dispatch</h3>
+            <h3>{t("alert.pre")}</h3>
             {gate ? (
               <QualityGate results={gate.results} blocked={gate.blocked} />
             ) : (
-              <p className="muted">
-                Quality gate has not been run for this alert yet.
-              </p>
+              <p className="muted">{t("gate.notRun")}</p>
             )}
             <button
               className="btn btn--ghost"
               onClick={() => void runGate()}
               disabled={busy === "gate"}
             >
-              {busy === "gate" ? "Running…" : "Run quality gate"}
+              {busy === "gate" ? t("gate.running") : t("gate.run")}
             </button>
           </div>
 
@@ -269,17 +269,14 @@ export function AlertDetail({
               disabled={dispatchDisabled}
             >
               <Send size={14} aria-hidden />
-              {busy === "dispatch" ? "Dispatching…" : "Dispatch alert"}
+              {busy === "dispatch" ? t("alert.sending") : t("alert.send")}
             </button>
             {gateBlocks && (
-              <p className="danger detail__why">
-                Blocked: the quality gate has failing checks above.
-              </p>
+              <p className="danger detail__why">{t("gate.blockedDispatch")}</p>
             )}
             {approvalsShort && (
               <p className="danger detail__why">
-                Blocked: {have} of {need} approvals recorded.
-                The second approval must come from a different officer.
+                {t("approval.short", { have, need })}
               </p>
             )}
             {notice && (
@@ -290,20 +287,20 @@ export function AlertDetail({
           </div>
 
           <div className="panel detail__box">
-            <h3>New version</h3>
-            <p className="muted">Escalating severity drafts vN+1. Change reason is required.</p>
+            <h3>{t("alert.newVersion")}</h3>
+            <p className="muted">{t("alert.newVersionHint")}</p>
             <label className="field">
-              <span>Change reason</span>
+              <span>{t("alert.reason")}</span>
               <input value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
             </label>
             <label className="field">
-              <span>Severity</span>
+              <span>{t("compose.severity")}</span>
               <select value={nextSeverity} onChange={(e) => setNextSeverity(e.target.value)}>
-                <option value="">Keep current</option>
-                <option value="minor">minor</option>
-                <option value="moderate">moderate</option>
-                <option value="severe">severe</option>
-                <option value="extreme">extreme</option>
+                <option value="">{t("alert.keepSeverity")}</option>
+                <option value="minor">{t("sev.minor")}</option>
+                <option value="moderate">{t("sev.moderate")}</option>
+                <option value="severe">{t("sev.severe")}</option>
+                <option value="extreme">{t("sev.extreme")}</option>
               </select>
             </label>
             <button
@@ -312,18 +309,16 @@ export function AlertDetail({
               disabled={busy !== null || !changeReason.trim()}
               onClick={() => void escalate()}
             >
-              {busy === "version" ? "Creating…" : "Create new version"}
+              {busy === "version" ? t("alert.creatingVersion") : t("alert.createVersion")}
             </button>
           </div>
         </div>
 
         <div className="detail__col">
           <div className="panel detail__box">
-            <h3>Delivery assurance</h3>
+            <h3>{t("alert.proof")}</h3>
             {deliveries.length === 0 && (
-              <p className="muted">
-                No deliveries yet. The ladder fills in as evidence arrives.
-              </p>
+              <p className="muted">{t("alert.proofEmpty")}</p>
             )}
             <div className="ladders">
               {sample.map((d) => (
@@ -332,8 +327,10 @@ export function AlertDetail({
             </div>
             {deliveries.length > sample.length && (
               <p className="muted">
-                Showing {sample.length} of {deliveries.length.toLocaleString()}{" "}
-                deliveries — one per channel first, then most recent.
+                {t("alert.proofMore", {
+                  shown: sample.length,
+                  total: deliveries.length.toLocaleString(),
+                })}
               </p>
             )}
           </div>

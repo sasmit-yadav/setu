@@ -28,10 +28,10 @@ const SOURCE = {
 };
 
 const REQUIRED = {
-  incident: ["Incident", 'aria-label="Version chain"', 'aria-label="Incident timeline"'],
-  queue: ["Assistance queue", 'aria-label="Cases"', 'role="table"'],
-  board: ["Command Board", "Select incident", 'aria-label="Board totals"'],
-  methodology: ["Methodology", 'aria-label="Channel capability"', "sr-only"],
+  incident: ['t("incident.kicker")', 't("incident.versions")', 't("incident.timeline")'],
+  queue: ['t("queue.title")', 't("queue.casesAria")', 'role="table"'],
+  board: ['t("board.title")', "board.selectIncident", 't("board.totals")'],
+  methodology: ['t("method.title")', 't("method.channels")', "sr-only"],
   ladder: ["not applicable", "sr-only", "<s>"],
 };
 
@@ -40,17 +40,17 @@ const SCREENS = {
     <div class="screen">
       <header class="screen__head">
         <div>
-          <p class="screen__kicker">Incident</p>
+          <p class="screen__kicker">This emergency</p>
           <h2>WAYANAD-FLOOD-001</h2>
         </div>
-        <button type="button" aria-label="Back to board">Back</button>
+        <button type="button" aria-label="Back to overview">Back</button>
       </header>
-      <section class="panel" aria-label="Version chain">
-        <h3>Version chain</h3>
-        <ol><li><button type="button">v1 ACTIVE</button></li></ol>
+      <section class="panel" aria-label="Versions of this warning">
+        <h3>Versions of this warning</h3>
+        <ol><li><button type="button">v1 Live</button></li></ol>
       </section>
-      <section class="panel" aria-label="Incident timeline">
-        <h3>Timeline</h3>
+      <section class="panel" aria-label="What happened, in order">
+        <h3>What happened, in order</h3>
         <ol><li><time datetime="2026-08-20T10:00:00Z">10:00</time> <strong>alert.created</strong></li></ol>
       </section>
     </div>`,
@@ -58,13 +58,13 @@ const SCREENS = {
     <div class="screen">
       <header class="screen__head">
         <div>
-          <p class="screen__kicker">Response</p>
-          <h2>Assistance queue</h2>
+          <p class="screen__kicker">People in danger</p>
+          <h2>Help needed</h2>
         </div>
-        <label>Assign to team <input /></label>
+        <label>Give to this team <input /></label>
         <button type="button" aria-label="Refresh">Refresh</button>
       </header>
-      <section aria-label="Queue summary"><p>Open cases 0</p></section>
+      <section aria-label="Open requests"><p>Open requests 0</p></section>
       <section class="panel" aria-label="Cases" role="table">
         <div role="row">
           <span role="columnheader">Priority</span>
@@ -80,11 +80,11 @@ const SCREENS = {
     <div class="screen">
       <header class="screen__head">
         <div>
-          <p class="screen__kicker">Common operating picture</p>
-          <h2>Command Board</h2>
+          <p class="screen__kicker">One picture of this emergency</p>
+          <h2>Overview</h2>
         </div>
       </header>
-      <section aria-label="Board totals"><p>Open incidents 1</p></section>
+      <section aria-label="Board totals"><p>Open emergencies 1</p></section>
       <section class="panel" aria-label="Incidents">
         <button type="button" aria-pressed="true" aria-label="Select incident DEMO-BOARD-001">DEMO-BOARD-001</button>
       </section>
@@ -94,12 +94,12 @@ const SCREENS = {
     <div class="screen">
       <header class="screen__head">
         <div>
-          <p class="screen__kicker">Accountability</p>
-          <h2>Methodology</h2>
+          <p class="screen__kicker">Why a number looks the way it does</p>
+          <h2>How we measure</h2>
         </div>
       </header>
-      <section class="panel" aria-label="Channel capability">
-        <h3>Channel capability</h3>
+      <section class="panel" aria-label="What each channel can honestly prove">
+        <h3>What each channel can honestly prove</h3>
         <table>
           <caption class="sr-only">Channel assurance capability by tier</caption>
           <thead><tr><th>Channel</th><th>Tier</th><th>Supported</th></tr></thead>

@@ -3,6 +3,7 @@ import {
   ApiError,
   clearCitizenSession,
   fetchDelivery,
+  fetchMyDeliveries,
   fetchPublicConfig,
   fetchSafeZone,
   fetchSigningKey,
@@ -123,7 +124,6 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
   const [deliveryId, setDeliveryId] = useState<number | null>(deliveryFromUrl);
-  const [manualId, setManualId] = useState("");
   const [delivery, setDelivery] = useState<CitizenDelivery | null>(null);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [screen, setScreen] = useState<Screen>("alert");
@@ -190,6 +190,33 @@ export default function App() {
     if (!signedIn || peerProvenance) return;
     if (deliveryId !== null) void loadDelivery(deliveryId);
   }, [deliveryId, loadDelivery, signedIn, peerProvenance]);
+
+  useEffect(() => {
+    if (!signedIn || peerProvenance || deliveryId !== null) return;
+    let cancelled = false;
+    setLoading(true);
+    void fetchMyDeliveries()
+      .then((rows) => {
+        if (cancelled) return;
+        const first = rows[0];
+        if (first) {
+          setDeliveryId(first.delivery_id);
+          return;
+        }
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 401) {
+          expireSession();
+          return;
+        }
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn, deliveryId, peerProvenance, expireSession]);
 
   useEffect(() => {
     if (!signedIn || deliveryId === null) return;
@@ -423,24 +450,16 @@ export default function App() {
   }
 
   if (!delivery && !loading) {
-    // A real citizen has no alert to load and never types an ID — an alert
-    // arrives as a push, and tapping it opens straight to that delivery via
-    // notificationclick (sw.ts). The ID box below is a *dev/test* path,
-    // documented as such in TASK.md ("Manual delivery ID entry — works
-    // without Firebase for dev/test"), so it must never be the thing a real
-    // citizen or a judge is shown. import.meta.env.DEV is Vite's own flag —
-    // true under `npm run dev`, false in the production build served from
-    // Vercel — so this needs no new config to stay hidden in production.
     return (
       <main className="shell">
         <article className="pass">
         <Brand />
         <header>
           <p className="eyebrow">Citizen</p>
-          <h1>{pushConfigured(cfg) ? "No active alert" : "Waiting for an alert"}</h1>
+          <h1>No warning for your village right now</h1>
         </header>
         <p className="muted">
-          You will be notified here the moment your area has an active alert.
+          When the district sends one, it will open here. You do not need to search for it.
         </p>
         {pushConfigured(cfg) && pushSupported() && pushState !== "enabled" ? (
           <button
@@ -460,25 +479,6 @@ export default function App() {
         {pushState === "enabled" ? <p className="muted">Alerts enabled on this phone.</p> : null}
         {pushState === "error" ? (
           <p className="muted">Couldn't enable alerts — try again shortly.</p>
-        ) : null}
-        {import.meta.env.DEV ? (
-          <form
-            className="manual"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const id = Number(manualId);
-              if (Number.isFinite(id)) void loadDelivery(id);
-            }}
-          >
-            <p className="muted">Dev/test only — never shown in production:</p>
-            <input
-              inputMode="numeric"
-              placeholder="Delivery ID"
-              value={manualId}
-              onChange={(e) => setManualId(e.target.value)}
-            />
-            <button type="submit" className="primary">Open</button>
-          </form>
         ) : null}
         {error ? <p className="error">{error}</p> : null}
         <button type="button" className="textlink" onClick={expireSession}>

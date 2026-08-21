@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Command, HeartPulse, LogOut, Map, Radio, Siren } from "lucide-react";
 import { endpoints, getToken, setToken, type Me } from "./lib/api";
+import { lookup, useT } from "./lib/i18n";
 import { CommandPalette, type Command as Cmd } from "./components/CommandPalette";
+import { LangSwitcher } from "./components/LangSwitcher";
 import { Login } from "./pages/Login";
 import { LiveOps } from "./pages/LiveOps";
 import { AlertDetail } from "./pages/AlertDetail";
@@ -36,6 +38,7 @@ function roleChip(role: string): string {
 }
 
 export default function App() {
+  const { t } = useT();
   const [me, setMe] = useState<Me | null>(null);
   const [checked, setChecked] = useState(false);
   const [view, setView] = useState<View>({ name: "live" });
@@ -71,23 +74,35 @@ export default function App() {
     setView({ name: "incident", id });
   }, []);
 
+  const writeRoles = me?.role === "officer" || me?.role === "state_admin";
+  const relayRoles = writeRoles || me?.role === "relay_node";
+
   const commands: Cmd[] = useMemo(
-    () => [
-      { id: "live", label: "Go to Live Operations", hint: "map + table", shortcut: "G L", run: () => setView({ name: "live" }) },
-      { id: "incident", label: "Go to Incident", hint: lastIncidentId ? "last opened" : "via board", shortcut: "G I", run: () => {
-        if (lastIncidentId) openIncident(lastIncidentId);
-        else setView({ name: "board" });
-      } },
-      { id: "compose", label: "Compose alert", hint: "draw polygon", shortcut: "G C", run: () => setView({ name: "compose" }) },
-      { id: "queue", label: "Go to Assistance queue", hint: "open cases", shortcut: "G Q", run: () => setView({ name: "queue" }) },
-      { id: "board", label: "Command Board", hint: "common operating picture", shortcut: "G B", run: () => setView({ name: "board" }) },
-      { id: "method", label: "Methodology", hint: "thresholds and capability", shortcut: "G M", run: () => setView({ name: "method" }) },
-      { id: "analytics", label: "Analytics", hint: "lead time + coverage", shortcut: "G A", run: () => setView({ name: "analytics" }) },
-      { id: "relay", label: "Relay tasks", hint: "HUMAN confirm", run: () => setView({ name: "relay" }) },
-      { id: "enroll", label: "CSV enrollment", hint: "dry-run then commit", run: () => setView({ name: "enroll" }) },
-      { id: "signout", label: "Sign out", hint: me?.email, run: signOut },
-    ],
-    [me, lastIncidentId, openIncident],
+    () => {
+      const all: Cmd[] = [
+        { id: "live", label: t("cmd.map"), hint: t("cmd.mapHint"), shortcut: "G L", run: () => setView({ name: "live" }) },
+        { id: "incident", label: t("cmd.emergency"), hint: t("cmd.emergencyHint"), shortcut: "G I", run: () => {
+          if (lastIncidentId) openIncident(lastIncidentId);
+          else setView({ name: "board" });
+        } },
+      ];
+      if (writeRoles) {
+        all.push({ id: "compose", label: t("cmd.write"), hint: t("cmd.writeHint"), shortcut: "G C", run: () => setView({ name: "compose" }) });
+        all.push({ id: "queue", label: t("cmd.help"), hint: t("cmd.helpHint"), shortcut: "G Q", run: () => setView({ name: "queue" }) });
+      }
+      all.push({ id: "board", label: t("cmd.overview"), hint: t("cmd.overviewHint"), shortcut: "G B", run: () => setView({ name: "board" }) });
+      all.push({ id: "method", label: t("cmd.measure"), shortcut: "G M", run: () => setView({ name: "method" }) });
+      all.push({ id: "analytics", label: t("cmd.timing"), shortcut: "G A", run: () => setView({ name: "analytics" }) });
+      if (relayRoles) {
+        all.push({ id: "relay", label: t("cmd.foot"), hint: t("cmd.footHint"), run: () => setView({ name: "relay" }) });
+      }
+      if (writeRoles) {
+        all.push({ id: "enroll", label: t("cmd.register"), hint: t("cmd.registerHint"), run: () => setView({ name: "enroll" }) });
+      }
+      all.push({ id: "signout", label: t("app.signOut"), hint: me?.email, run: signOut });
+      return all;
+    },
+    [t, me, lastIncidentId, openIncident, writeRoles, relayRoles],
   );
 
   if (!checked) return null;
@@ -99,8 +114,8 @@ export default function App() {
         <div className="topbar__brand">
           <span className="topbar__mark" aria-hidden />
           <Radio size={16} aria-hidden />
-          <strong>SETU</strong>
-          <span className="muted">Ops</span>
+          <strong>{t("app.name")}</strong>
+          <span className="muted">{t("app.desk")}</span>
         </div>
 
         <nav className="topbar__nav" aria-label="Primary">
@@ -108,7 +123,7 @@ export default function App() {
             className={`navlink ${view.name === "live" || view.name === "alert" || view.name === "compose" ? "is-active" : ""}`}
             onClick={() => setView({ name: "live" })}
           >
-            Live Operations
+            {t("nav.map")}
           </button>
           <button
             className={`navlink ${view.name === "incident" ? "is-active" : ""}`}
@@ -117,35 +132,42 @@ export default function App() {
               else setView({ name: "board" });
             }}
           >
-            <Siren size={12} aria-hidden /> Incident
+            <Siren size={12} aria-hidden /> {t("nav.emergency")}
           </button>
+          {writeRoles && (
           <button className={`navlink ${view.name === "queue" ? "is-active" : ""}`} onClick={() => setView({ name: "queue" })}>
-            <HeartPulse size={12} aria-hidden /> Assistance
+            <HeartPulse size={12} aria-hidden /> {t("nav.help")}
           </button>
+          )}
           <button className={`navlink ${view.name === "board" ? "is-active" : ""}`} onClick={() => setView({ name: "board" })}>
-            <Map size={12} aria-hidden /> Board
+            <Map size={12} aria-hidden /> {t("nav.overview")}
           </button>
           <button className={`navlink ${view.name === "method" ? "is-active" : ""}`} onClick={() => setView({ name: "method" })}>
-            Methodology
+            {t("nav.measure")}
           </button>
           <button className={`navlink ${view.name === "analytics" ? "is-active" : ""}`} onClick={() => setView({ name: "analytics" })}>
-            Analytics
+            {t("nav.timing")}
           </button>
+          {relayRoles && (
           <button className={`navlink ${view.name === "relay" ? "is-active" : ""}`} onClick={() => setView({ name: "relay" })}>
-            Relay
+            {t("nav.foot")}
           </button>
+          )}
+          {writeRoles && (
           <button className={`navlink ${view.name === "enroll" ? "is-active" : ""}`} onClick={() => setView({ name: "enroll" })}>
-            Enrollment
+            {t("nav.register")}
           </button>
+          )}
         </nav>
 
         <div className="topbar__right">
+          <LangSwitcher />
           <span className="topbar__hint muted">
             <Command size={12} aria-hidden /> <kbd className="mono">Ctrl K</kbd>
           </span>
           <span className="topbar__user mono">{me.email}</span>
-          <span className={roleChip(me.role)}>{me.role.replace("_", " ")}</span>
-          <button className="btn btn--ghost" onClick={signOut} aria-label="Sign out">
+          <span className={roleChip(me.role)}>{lookup(t, "role", me.role)}</span>
+          <button className="btn btn--ghost" onClick={signOut} aria-label={t("app.signOut")}>
             <LogOut size={14} aria-hidden />
           </button>
         </div>
@@ -155,7 +177,7 @@ export default function App() {
         {view.name === "live" && (
           <LiveOps
             onOpen={(id) => setView({ name: "alert", id })}
-            onCompose={() => setView({ name: "compose" })}
+            onCompose={writeRoles ? () => setView({ name: "compose" }) : undefined}
             onUnit={(id) => setView({ name: "unit", id })}
           />
         )}
@@ -194,7 +216,7 @@ export default function App() {
         )}
       </main>
 
-      <CommandPalette commands={commands} />
+      <CommandPalette commands={commands} emptyLabel={t("cmd.none")} searchLabel={t("app.search")} />
     </div>
   );
 }

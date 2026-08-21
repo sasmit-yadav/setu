@@ -33,28 +33,7 @@ class CitizenDeliveryOut(BaseModel):
     fallback_notice: str | None = None
 
 
-@router.get("/deliveries/{delivery_id}", response_model=CitizenDeliveryOut)
-async def citizen_delivery(
-    delivery_id: int,
-    conn: asyncpg.Connection = Depends(get_conn),
-    principal: Principal = Depends(require_citizen_write),
-) -> CitizenDeliveryOut:
-    await assert_delivery_in_scope(conn, principal, delivery_id)
-    row = await conn.fetchrow(
-        """
-        SELECT d.id, d.alert_id, a.headline, a.body, a.severity, a.lang AS source_lang,
-               r.preferred_lang, c.code AS channel_code, d.simulated, a.lifecycle_status,
-               a.expires_at, a.effective_at
-        FROM delivery d
-        JOIN alert a ON a.id = d.alert_id
-        JOIN channel c ON c.id = d.channel_id
-        JOIN recipient r ON r.id = d.recipient_id
-        WHERE d.id = $1
-        """,
-        delivery_id,
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="delivery_not_found")
+async def _to_out(conn: asyncpg.Connection, row: asyncpg.Record) -> CitizenDeliveryOut:
     resolved = await resolve_alert_text(conn, row["alert_id"], row["preferred_lang"])
     headline, _ = await apply_headline(conn, row["alert_id"], resolved.headline)
     effective_at = row["effective_at"].isoformat() if row["effective_at"] else None
@@ -86,6 +65,58 @@ async def citizen_delivery(
         translated=resolved.translated,
         fallback_notice=resolved.fallback_notice,
     )
+
+
+_DELIVERY_SELECT = """
+        SELECT d.id, d.alert_id, a.headline, a.body, a.severity, a.lang AS source_lang,
+               r.preferred_lang, c.code AS channel_code, d.simulated, a.lifecycle_status,
+               a.expires_at, a.effective_at
+        FROM delivery d
+        JOIN alert a ON a.id = d.alert_id
+        JOIN channel c ON c.id = d.channel_id
+        JOIN recipient r ON r.id = d.recipient_id
+"""
+
+
+@router.get("/deliveries", response_model=list[CitizenDeliveryOut])
+async def list_citizen_deliveries(
+    conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_citizen_write),
+) -> list[CitizenDeliveryOut]:
+    if principal.unit_scope_id is None:
+        return []
+    rows = await conn.fetch(
+        _DELIVERY_SELECT
+        + """
+        WHERE r.unit_id = $1 AND a.lifecycle_status = 'active'
+        ORDER BY a.effective_at DESC NULLS LAST, d.id DESC
+        LIMIT 20
+        """,
+        principal.unit_scope_id,
+    )
+    seen: set[int] = set()
+    out: list[CitizenDeliveryOut] = []
+    for row in rows:
+        if row["alert_id"] in seen:
+            continue
+        seen.add(row["alert_id"])
+        out.append(await _to_out(conn, row))
+        if len(out) >= 5:
+            break
+    return out
+
+
+@router.get("/deliveries/{delivery_id}", response_model=CitizenDeliveryOut)
+async def citizen_delivery(
+    delivery_id: int,
+    conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_citizen_write),
+) -> CitizenDeliveryOut:
+    await assert_delivery_in_scope(conn, principal, delivery_id)
+    row = await conn.fetchrow(_DELIVERY_SELECT + " WHERE d.id = $1", delivery_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="delivery_not_found")
+    return await _to_out(conn, row)
 
 
 @router.post("/device", response_model=DeviceRegisterResponse)

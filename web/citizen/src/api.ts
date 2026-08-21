@@ -149,6 +149,11 @@ export async function fetchSigningKey(): Promise<string> {
   return data.public_key_b64 as string;
 }
 
+export async function fetchMyDeliveries(): Promise<CitizenDelivery[]> {
+  const res = await apiFetch("/api/v1/citizen/deliveries");
+  return parseJson(res);
+}
+
 export async function fetchDelivery(deliveryId: number): Promise<CitizenDelivery> {
   const res = await apiFetch(`/api/v1/citizen/deliveries/${deliveryId}`);
   return parseJson(res);
