@@ -98,10 +98,28 @@ creates `setu-api` (web) and `setu-worker`.
 **2.2** Fill the prompted secrets. Every one is `sync: false`, so nothing
 sensitive is in the repo. Take the values from your local `.env`:
 
-- `DATABASE_URL_POOLED` — the Neon **`-pooler`** hostname. Strip
-  `?sslmode=require`: asyncpg rejects it in the URL and takes ssl via
-  `connect_args` instead.
-- `DATABASE_URL_DIRECT` — the plain Neon URL, migrations only.
+- `DATABASE_URL_POOLED` — the Neon **`-pooler`** hostname, **copied exactly as
+  Neon gives it, query string and all.**
+- `DATABASE_URL_DIRECT` — the plain Neon URL, migrations only. Same rule.
+
+  > **Do not partially strip the query string.** The spec (Part 23) says to
+  > remove `?sslmode=require` because asyncpg rejects it. Verified against this
+  > Neon instance on 21 Aug: that advice is now **wrong and actively
+  > dangerous**. asyncpg accepts the full URL and negotiates TLS itself — all
+  > three of raw, fully-stripped, and `ssl='require'` connect fine.
+  >
+  > What does break is removing *one* param. Neon now issues
+  > `?sslmode=require&channel_binding=require`, so deleting just
+  > `?sslmode=require` leaves `&channel_binding=require` glued to the database
+  > name with no `?`, and you get:
+  >
+  > ```
+  > asyncpg.exceptions.InvalidCatalogNameError:
+  >   database "neondb&channel_binding=require" does not exist
+  > ```
+  >
+  > which reads like a missing database rather than a malformed URL. Copy the
+  > whole thing, or strip the whole query string. Never half of it.
 - `REDIS_URL` — Upstash, **not** your local docker Redis.
 - `PHONE_HASH_PEPPER`, `PGCRYPTO_SYM_KEY`, `ALERT_SIGNING_SEED_B64` —
   data-shaping secrets. Read Part 25's rotation notes first: rotating either of
