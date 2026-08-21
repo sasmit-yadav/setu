@@ -606,8 +606,14 @@ but because rows aren't loaded yet.
 ## 6. Application layer — as built
 
 This section tracks **running code**, not the design spec. Updated whenever
-a module ships. Last verified: **76/76 pytest green** against local Docker
-(Postgres `:5433`, Redis `:6379`).
+a module ships. Last verified 21 Aug 2026: **267 passed, 2 skipped**,
+`services/delivery` coverage **95.87%** against local Docker
+(Postgres `:5433`, Redis `:6379`), with all six guard scripts and
+`ruff check services/` green. Live-provider status: **Twilio SMS proven end to
+end** (real `provider_accepted` → real carrier callback → `device_delivered`);
+Firebase credential authenticates but no token has been minted yet, so
+`delivery_event` still holds zero rows with `source='fcm_send'`. See §6.13 for
+what the audit that produced these numbers found.
 
 ### 6.1 FastAPI surface (`services/api/`)
 
@@ -701,6 +707,13 @@ deployments — sim path is honest, not silent.
   (`versioning.supersede_lock_ms`).
 - **`worker.py`** — consumer group; real adapters when creds present;
   `ChannelUnavailable` → honest sim fallback (not silent success).
+  Drains due retries every loop tick, **including the idle one** — the
+  `XREADGROUP` block window is the natural pacing, and draining only when the
+  stream had traffic would mean a retry scheduled during a quiet period never
+  fired.
+- **`retry.py` (B3)** — policy-driven retry and channel escalation. See §6.13:
+  this was the largest gap in the build and the four policy columns were dead
+  for the entire project until 21 Aug.
 - **Channel adapters:** `SimulatedCarrierAdapter` always available;
   `FcmAdapter`, `SmsAdapter`, `IvrAdapter`, `EmailAdapter` are real
   when env creds exist; siren/human_relay/community_relay remain stubs
@@ -1090,6 +1103,135 @@ mocked away — the DB driver, the config table, the seed file, the live HTTP
 feed. Tests that construct their own inputs cannot catch a bug in how real
 inputs arrive. That is the argument for the integration run the roadmap
 requires, and for `conftest.py` using the production connection path.
+
+---
+
+### 6.13 What a line-by-line roadmap audit found (21 Aug 2026)
+
+The roadmap was walked against the **running system** — database, code and
+tests — rather than against this file's own previous claims. That distinction
+mattered: 219 tests were green at the time, and every finding below had
+survived all of them. Recorded because the *pattern* generalises.
+
+**1. B3 was never implemented at all.** `escalation_policy` has carried
+`wait_before_next_s`, `backoff_multiplier`, `jitter_ms` and `max_attempts`
+since migration `0002`, fully seeded per severity. Grepping the whole tree for
+those four names returned **only the migration and the seed file** — no code
+read them. The evidence in the data was unambiguous:
+
+| | Before | After |
+|---|---|---|
+| `delivery.attempt` values | `1` only, across all 1,987 rows | 30 rows reached attempt 2 |
+| `escalated` state rows | **0** | 12 |
+| Failures abandoned after one try | 462 | retried per policy |
+
+A transient provider hiccup was a *permanent* delivery failure, on the primary
+channel, in a disaster-alerting platform. B3 is `[C]` core Module B, not stretch.
+
+It also silently broke **B9's semantics**. `on_channels_exhausted()` fired
+inside the *first* `except ChannelUnavailable`, so the demo line "this unit
+exhausted push, SMS **and** IVR" was true of one attempt on one channel. A
+human is the most expensive channel in the table — `cost_weight` ranks it 12 —
+and was being spent on the first hiccup. It now hangs off `chain_exhausted`,
+reachable only once every step has been tried to its `max_attempts`.
+
+The state machine had anticipated all of it: `LEGAL` already permits
+`failed -> pending`, `failed -> escalated` and `escalated -> pending`, and
+`keys.py` already reserved `zset_retry()`. Only the driver was missing.
+
+Five design points in `retry.py` worth knowing before changing it:
+
+- **`compute_delay_s()` is pure** and takes the policy row as arguments, so
+  growth and jitter are testable without a fixture — and provable in a
+  committed artifact (`docs/evidence/backoff-*.md`).
+- **Jitter is symmetric**, plus/minus half the configured window. Positive-only
+  jitter would silently stretch every schedule past what the table says, which
+  makes a tuned backoff untunable.
+- **Due times live in a Redis ZSET**, not an `asyncio.sleep`. A redeploy is
+  precisely when pending retries matter, and sleeping in-process drops every
+  one of them. Draining claims with `ZPOPMIN` so two workers cannot both send
+  the same person the same alert.
+- **A channel can occupy more than one `step_order`.** `extreme` lists `sms` at
+  step 0 (the Palghar fix — high reach-risk skips push) *and* at step 2, and
+  `delivery` does not record which step it came from. `_policy_for()` resolves
+  to the **last** match so escalation walks forward; resolving to the first
+  would escalate a failed SMS *back* to the push step the policy deliberately
+  skipped. That is a documented heuristic — the exact fix, if ever needed, is a
+  `step_order` column on `delivery`, not a cleverer query.
+- **`sim` gets no retry**, deliberately. It is a fallback, not a policy step;
+  inventing a schedule for it would be a hardcoded timing by the back door.
+
+**2. F3 approvals left no audit trace.** `services/governance/approvals.py`
+had **no audit call whatsoever**. The four-eyes quorum was enforced correctly,
+but `alert.approved` was never written — so the marquee governance feature was
+invisible in the immutable ledger the 5:30 demo beat is built on, and Part 16
+Day 6 names that event as a required timeline entry.
+
+**3. `alert.validation_failed` was never written either.**
+`POST /alerts/{id}/validate` persisted per-rule rows to
+`alert_validation_result` but appended nothing to the ledger. That table is
+per-rule *state*, not a ledger entry, so a blocked dispatch — step 3 of the
+Day-9 integration run — produced no `audit_event` at all. Audited **after** the
+rollback in `engine.py`, deliberately: the `QualityGateBlocked` raise unwinds
+the transaction, so an append before it would vanish along with the dispatch.
+
+**4. `PGCRYPTO_SYM_KEY` did not exist.** Absent from `.env`, `.env.example`,
+`gen_secrets.py` *and* `check_env_example.py`. `_encrypt_phone()` returns
+`None` rather than raising when the key is unset, so **20 CSV-imported
+recipients had `phone_enc IS NULL`** and could never be reached by SMS, IVR or
+email — with no error at import time. Four were recovered from
+`data/enrollment/team.csv`; **sixteen are unrecoverable**, because their source
+CSV is deleted and `phone_hash` is a one-way HMAC. Now documented in
+`.env.example` as the data-shaping secret it is, alongside the pepper.
+
+**5. FCM sent a `notification` block on the webpush path.** The browser's own
+tray consumes those without ever waking our service worker — which is where the
+`receipt_nonce` round-trip lives. `device_delivered` could never fire, so the
+ladder would have frozen at tier 1, reproducing the exact failure §6.11 already
+records once. Web push is now **data-only**, with `sw.ts` rendering the
+notification itself.
+
+**6. The dev service worker never started.** `createHandlerBoundToURL()`
+*asserts* its URL is in the precache manifest and throws synchronously when it
+is not. `vite-plugin-pwa` injects `__WB_MANIFEST` as `[]` in dev (Vite serves
+the shell itself), so that throw aborted the whole worker at module evaluation.
+Because it died there, every SW feature failed at once — which made one bug look
+like several unrelated ones:
+
+- **Gate 3's unplug beat** — the `NetworkFirst` route was never registered, so
+  no alert was ever cached and the PWA had nothing to show offline.
+- **The FCM `device_delivered` signal** — `enablePush()` awaits
+  `navigator.serviceWorker.ready` before `getToken()`, and that promise never
+  resolved. Push registration could not even be *attempted*, independently of
+  notification permission.
+
+The navigation fallback is now registered only when the shell is genuinely
+precached. Production is unchanged — verified by reading the compiled guard out
+of `dist/sw.js`, where the manifest carries `{"url":"index.html"}` and the
+guard matches it. After the fix, `serviceWorker.ready` resolves in 2 ms and
+`setu-deliveries-v1` holds the alert and its safe zone, reading back headline,
+severity and Ed25519 signature with no network.
+
+**Test gaps the same audit closed:** `geometry_non_empty` and
+`target_count_plausible` had no fixture in either direction, though Day 4 names
+both among the first three rules made real; `GET /units/{id}/vulnerability`,
+`POST /response` and `POST /citizen/device` had no RBAC allow/deny pair;
+F4 had no test proving a fourth **extreme** alert is still delivered in full;
+and `STOP`/`opted_out_at` — a *consent* guarantee — had no test at all, even
+though the exclusion existed in `recipients_in_area()`.
+
+`verify_seeds.py` now **fails** rather than prints INFO on two Day-4 exit-gate
+assertions it was only reporting: empty `app_config` notes (the three
+`severity.rank` rows had none while their `extreme` sibling did — drift, not a
+policy) and alerts with a NULL `incident_id`, of which three had accumulated
+since the `0007` backfill because the column is nullable and nothing
+re-checked it.
+
+**The generalisable lesson, again:** every one of these was invisible to a
+green suite because no test asserted on the *consequence* — the ledger's
+contents after approving, the `attempt` column after a failure, the cache after
+a page load. A test that exercises a code path is not the same as a test that
+checks the path did what the product promises.
 
 ---
 

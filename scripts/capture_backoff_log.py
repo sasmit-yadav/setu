@@ -25,8 +25,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from services.api.db import connect  # noqa: E402
-from services.delivery.retry import compute_delay_s  # noqa: E402
+from services.api.db import connect
+from services.delivery.retry import compute_delay_s
 
 OUT_DIR = ROOT / "docs" / "evidence"
 
