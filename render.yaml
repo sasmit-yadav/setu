@@ -28,8 +28,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.1"
       # ── database: pooled for the app, direct for migrations (Part 23) ──
-      # The pooled URL must NOT carry ?sslmode=require — asyncpg rejects it in
-      # the URL and takes ssl via connect_args instead.
+      # Paste the Neon URLs EXACTLY as Neon gives them, query string included.
+      # asyncpg accepts them and negotiates TLS itself. Removing only
+      # ?sslmode=require leaves &channel_binding=require glued to the database
+      # name and asyncpg reports "database ...&channel_binding=require does not
+      # exist", which reads as a missing database. See docs/DEPLOY.md.
       - key: DATABASE_URL_POOLED
         sync: false
       - key: DATABASE_URL_DIRECT
@@ -112,40 +115,10 @@ services:
       # The worker needs the same database, redis and channel credentials as the
       # API — it is the process that actually sends. fromService keeps them in
       # one place rather than duplicating every secret across two services.
-      - fromGroup: setu-shared
-
-envVarGroups:
-  - name: setu-shared
-    envVars:
-      - key: DATABASE_URL_POOLED
-        sync: false
-      - key: DATABASE_URL_DIRECT
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: REDIS_NAMESPACE
-        value: "setu:v1"
-      - key: SETU_LOAD_ML_MODELS
-        value: "0"
-      - key: HF_SPACE_URL
-        sync: false
-      - key: INTERNAL_ML_KEY
-        sync: false
-      - key: PHONE_HASH_PEPPER
-        sync: false
-      - key: PGCRYPTO_SYM_KEY
-        sync: false
-      - key: ALERT_SIGNING_SEED_B64
-        sync: false
-      - key: PUBLIC_BASE_URL
-        sync: false
-      - key: FCM_SERVICE_ACCOUNT_JSON
-        sync: false
-      - key: TWILIO_ACCOUNT_SID
-        sync: false
-      - key: TWILIO_AUTH_TOKEN
-        sync: false
-      - key: TWILIO_FROM_NUMBER
-        sync: false
-      - key: BREVO_API_KEY
-        sync: false
+      # Points at the group that is populated by hand in the dashboard, NOT at a
+      # blueprint-declared one. Render creating an empty group from this file and
+      # the operator filling a differently-named one is an easy split-brain: the
+      # worker silently reads the empty group, boots without a database, and the
+      # API still looks healthy because it has its own envVars. Secret files are
+      # per-service, so the group also carries fcm.json for the worker.
+      - fromGroup: setu-shared-grp
