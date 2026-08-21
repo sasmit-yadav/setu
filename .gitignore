@@ -3,8 +3,8 @@
 # ignored by this one pattern, so a new per-environment file never needs a
 # matching new gitignore line remembered later. .env.example is the one
 # deliberate exception, since it's the template teammates copy FROM.
+# ── secrets: never commit any .env files ──
 .env*
-!.env.example
 secrets/
 *.pem
 *-service-account.json
