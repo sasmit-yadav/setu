@@ -115,10 +115,11 @@ services:
       # The worker needs the same database, redis and channel credentials as the
       # API — it is the process that actually sends. fromService keeps them in
       # one place rather than duplicating every secret across two services.
-      # Points at the group that is populated by hand in the dashboard, NOT at a
-      # blueprint-declared one. Render creating an empty group from this file and
-      # the operator filling a differently-named one is an easy split-brain: the
-      # worker silently reads the empty group, boots without a database, and the
-      # API still looks healthy because it has its own envVars. Secret files are
-      # per-service, so the group also carries fcm.json for the worker.
-      - fromGroup: setu-shared-grp
+      # setu-shared is populated BY HAND in the dashboard and is deliberately
+      # not declared under envVarGroups here. Render can only fill literal
+      # values from a blueprint, so a declared group ends up holding just the
+      # two non-secret keys while every credential stays empty — and the worker
+      # then boots with no database while setu-api, which has its own envVars,
+      # still looks perfectly healthy. Secret files are per-service too, so this
+      # group is also what carries fcm.json to the worker.
+      - fromGroup: setu-shared
