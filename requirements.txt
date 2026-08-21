@@ -130,7 +130,12 @@ python-jose==3.5.0
 python-multipart==0.0.32
 python-socketio==5.16.4
 pytokens==0.4.1
-pywin32==312
+# Windows-only, and there is no Linux wheel at all — pip fails with
+# "No matching distribution found for pywin32" rather than skipping it, which
+# broke the first Render build. This list was frozen on a Windows dev machine;
+# the marker lets the same file install on both. Do not remove the marker when
+# re-freezing.
+pywin32==312; sys_platform == "win32"
 PyYAML==6.0.3
 pyzmq==27.1.0
 rasterio==1.5.1
