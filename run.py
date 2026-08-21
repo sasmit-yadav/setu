@@ -195,6 +195,42 @@ def worker() -> None:
     must([PY, "-m", "services.delivery.worker"])
 
 
+@task("Delivery worker against the DEPLOYED Neon + Upstash (.env.cloud)")
+def worker_cloud() -> None:
+    """Run the worker locally but against the cloud data plane.
+
+    Render's free tier has no background workers, so setu-worker is suspended
+    there. That is survivable because the worker is not a server: nothing calls
+    it, and it needs only Postgres and Redis, both of which are cloud-hosted.
+    Running it here makes it a real consumer of the deployed stream.
+
+    Deliberately does NOT fall back to .env if .env.cloud is missing. Silently
+    running against local Docker while the operator believes they are draining
+    the production queue is the worst possible outcome of a typo — the deployed
+    dispatch would sit in Upstash forever with nothing consuming it.
+    """
+    cloud = ROOT / ".env.cloud"
+    if not cloud.exists():
+        print(
+            "Missing .env.cloud — it holds the Neon + Upstash URLs and the\n"
+            "channel credentials for a local worker against the deployed data\n"
+            "plane. See docs/DEPLOY.md. Refusing to fall back to .env, because\n"
+            "that would drain the LOCAL queue while looking like production.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    env = os.environ.copy()
+    for line in cloud.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip()
+    target = env.get("DATABASE_URL_DIRECT", "").split("@")[-1].split("/")[0]
+    print(f"worker -> db {target} | redis {env.get('REDIS_URL','').split('@')[-1]}")
+    must([PY, "-m", "services.delivery.worker"], env=env)
+
+
 @task("Ingestion scheduler (USGS + GDACS pollers)")
 def ingest() -> None:
     load_env()
