@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 
 from services.api.db import connect
 from services.api.snapshot import SKIP_ROWS, SNAPSHOT_TABLES
+
 DEFAULT_DIR = ROOT / "data" / "snapshots"
 
 
@@ -94,9 +95,61 @@ async def _dump() -> dict:
                 "count": int(count or 0),
                 "rows": rows,
             }
+        _reject_fabricated_translations(tables)
         return {"captured_at": datetime.now(timezone.utc).isoformat(), "tables": tables}
     finally:
         await conn.close()
+
+
+# Placeholder translations written by test fixtures. `test_quality_gate.py`
+# inserts 'Malayalam headline' to satisfy the translation_exists rule, and the
+# stubbed ML client in `test_translate.py` returns an 'ml:'-prefixed string.
+# Harmless in a dev database; catastrophic in a snapshot.
+_FABRICATED_TRANSLATION_MARKERS = ("Malayalam headline", "Malayalam body")
+_FABRICATED_TRANSLATION_PREFIXES = ("ml:", "hi:", "ta:", "bn:", "te:", "kn:", "mr:")
+
+
+def _reject_fabricated_translations(tables: dict) -> None:
+    """Refuse to write a snapshot containing invented translations.
+
+    A snapshot is the artifact the demo actually loads (`python run.py demo`),
+    so a fabricated row here is not a test smell — it is the platform asserting
+    `translated=True` with no fallback notice while serving text no model ever
+    produced. That is the single thing this project exists to argue against, and
+    it would be on screen in the language the citizen reads.
+
+    This fails rather than filtering. A snapshot with NO translations degrades
+    honestly — the PWA shows the original language plus a visible notice — but a
+    snapshot with fake ones lies, and silently dropping them would hide that the
+    demo has no real translations at all, which is a decision the operator needs
+    to make knowingly.
+    """
+    entry = tables.get("alert_translation") or {}
+    bad: list[str] = []
+    for row in entry.get("rows", []):
+        for field in ("headline", "body"):
+            text = str(row.get(field) or "")
+            if text in _FABRICATED_TRANSLATION_MARKERS or text.startswith(
+                _FABRICATED_TRANSLATION_PREFIXES
+            ):
+                bad.append(f"alert_id={row.get('alert_id')} lang={row.get('lang')} {field}={text!r}")
+                break
+    if not bad:
+        return
+    preview = "\n  ".join(bad[:5])
+    more = f"\n  ... and {len(bad) - 5} more" if len(bad) > 5 else ""
+    raise SystemExit(
+        f"refusing to snapshot {len(bad)} fabricated alert_translation row(s).\n"
+        f"  {preview}{more}\n\n"
+        "These are test-fixture placeholders, not model output. Purge them, then\n"
+        "re-run:\n\n"
+        "  DELETE FROM alert_translation\n"
+        "  WHERE headline IN ('Malayalam headline', 'Malayalam body')\n"
+        "     OR headline ~ '^(ml|hi|ta|bn|te|kn|mr):';\n\n"
+        "Real translations come from the HF Space (SETU_LOAD_ML_MODELS=1). Until\n"
+        "it is deployed the cache stays empty and the PWA falls back honestly\n"
+        "with translation.fallback_notice, which is the correct behaviour."
+    )
 
 
 def main() -> int:
