@@ -11,10 +11,37 @@ declare let self: ServiceWorkerGlobalScope;
 
 clientsClaim();
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
 
-const appShell = createHandlerBoundToURL("/index.html");
-registerRoute(({ request }) => request.mode === "navigate", appShell);
+// In a production build __WB_MANIFEST is the real precache list. Under
+// `vite-plugin-pwa`'s dev server it is injected as `[]` — nothing is
+// precached, because Vite serves the app shell itself.
+//
+// That distinction is load-bearing: createHandlerBoundToURL() ASSERTS that the
+// URL it is given is in the precache manifest and throws synchronously if it is
+// not ("...that URL is not precached"). At module top level that throw aborts
+// the whole service worker with "ServiceWorker script evaluation failed", so on
+// the dev server we lost every SW feature at once — the offline alert cache
+// (Gate 3's unplug beat) AND the push -> receipt_nonce callback that is the
+// only real device_delivered signal for FCM (§8.3). Both looked like separate
+// problems; they were this one line.
+//
+// So the navigation fallback is registered only when the shell is actually
+// precached. Guarding the call, rather than removing it, keeps production
+// behaviour identical.
+const manifest = self.__WB_MANIFEST;
+precacheAndRoute(manifest);
+
+const APP_SHELL = "/index.html";
+const shellIsPrecached = Array.isArray(manifest)
+  && manifest.some((entry) => {
+    const url = typeof entry === "string" ? entry : entry?.url;
+    return url === APP_SHELL || url === "index.html";
+  });
+
+if (shellIsPrecached) {
+  const appShell = createHandlerBoundToURL(APP_SHELL);
+  registerRoute(({ request }) => request.mode === "navigate", appShell);
+}
 
 type PwaCfg = {
   networkTimeoutSeconds: number;
