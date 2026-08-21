@@ -1,0 +1,32 @@
+# Keep the HF Space image small and keep secrets out of the build context.
+# The Dockerfile COPYs only four paths, but the build context is still uploaded,
+# so excluding these matters for build time on a free Space.
+
+.env
+.env.*
+!.env.example
+secrets/
+ngrok.log
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Big and irrelevant to inference.
+data/snapshots/
+data/geometry/
+data/ml/
+docs/
+tests/
+migrations/
+web/
+infra/
+packages/
+scripts/
+
+# The API's own dependency set — see the note in the Dockerfile.
+requirements.txt

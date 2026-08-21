@@ -20,11 +20,24 @@ export default defineConfig({
         background_color: "#f3f2f1",
         display: "standalone",
         start_url: "/",
+        // 192 is the install icon, 512 is what Android uses for the splash
+        // screen. Both are also declared `maskable`: the glyph is drawn inside
+        // the central 60% of the canvas (scripts/gen_pwa_icons.py), so a
+        // circular crop cannot clip it. Without a 512 Chrome will not offer
+        // "add to home screen" at all, which is the entry point for the whole
+        // offline story.
         icons: [
           {
             src: "/icon-192.png",
             sizes: "192x192",
             type: "image/png",
+            purpose: "any maskable",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
           },
         ],
       },

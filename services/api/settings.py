@@ -63,6 +63,21 @@ class Settings(BaseSettings):
     opencellid_token: str = ""
     public_base_url: str = "http://localhost:8000"
     slack_or_discord_alert_webhook: str = ""
+    # Browser origins allowed to call this API, comma-separated. Per-environment
+    # infrastructure, not business policy, so it lives here rather than in
+    # app_config — and it must be env-driven because a deployed PWA on a
+    # different origin than the API cannot be reached otherwise, and hardcoding
+    # a vercel.app hostname in main.py would be exactly the Rule 1 violation
+    # Part 38 exists to prevent. The localhost defaults keep dev working with no
+    # .env entry at all.
+    cors_allowed_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174"
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
 
 settings = Settings()

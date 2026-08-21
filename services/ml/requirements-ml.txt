@@ -1,6 +1,34 @@
-torch
-transformers
-sentence-transformers
-IndicTransToolkit
-fastapi
-uvicorn
+# services/ml ONLY — the Hugging Face Space (Part 22). Never installed into the
+# API environment: scripts/check_no_torch.py fails the build if services/api
+# can import torch, and requirements.txt (the API's 169 pinned packages) has no
+# torch, transformers or sentence-transformers in it by design.
+#
+# Constrained rather than left open. This file was fully unpinned, which for a
+# Space that gets rebuilt on every push means the resolved versions are whatever
+# happened to be latest that day — non-reproducible, and able to break between
+# the last rehearsal and the demo without a single commit.
+#
+# transformers is held below 5.x deliberately. IndicTrans2 is loaded with
+# trust_remote_code=True, so the model card ships its own modeling code that
+# imports transformers internals; a major-version bump is exactly what breaks
+# custom remote code, and IndicTransToolkit declares `transformers` with no
+# upper bound of its own, so nothing else would stop the jump to v5.
+#
+# Upper bounds are next-major, not exact pins: an exact pin here would be a
+# guess, because the working combination has not been validated end to end on
+# the Space yet (no HF deployment exists as of 21 Aug). Ranges keep the build
+# reproducible within a major line while leaving room for patch fixes. When the
+# Space has served a real /translate, replace these with the exact resolved
+# versions from its build log and note the date.
+
+torch>=2.2,<3
+transformers>=4.40,<5
+sentence-transformers>=2.7,<6
+IndicTransToolkit>=1.0,<2
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+
+# server.py reads its env contract through services.api.settings, which is
+# pydantic-settings. Listed explicitly because the Dockerfile copies that one
+# module in and nothing else would pull this dependency.
+pydantic-settings>=2,<3
