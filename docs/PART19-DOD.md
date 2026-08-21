@@ -40,7 +40,7 @@ account and an artifact respectively.
 | 9 | `check_no_hardcoding.py` passes in CI | ✅ | Green, three passes (Python AST · SQL views · TS), wired in `.github/workflows/ci.yml`. |
 | 10 | **Branch coverage ≥95% on the delivery state machine, re-verified after every v3.0 writer** | ✅ | **95.87%**, re-run after B3's writers were added — which is exactly the re-verification this box asks for. `state_machine.py` and `states.py` are both at 100%. |
 | 11 | All six teammates can run the demo alone | ❌ | Day 12–13 rehearsal. Needs the team. |
-| 12 | Redis command budget ≥5× headroom | ❌ | Not measured. §1.4's arithmetic exists but no counter check has been run; B3 adds a ZSET write per failure, so the figure has changed and must be re-derived. |
+| 12 | Redis command budget ≥5× headroom | ⚠️ | *(deploy)* Re-derived from real data (33 dispatches): found B3's idle-tick `ZPOPMIN` cost **17,280 commands/day alone**, exceeding the whole daily budget before any alert fires. Fixed by raising `delivery.xread_block_ms` 5000→15000 (config, not a literal). At a generous 4-hour continuous run: **4.08× headroom** — short of 5× unless the worker is stopped between rehearsals, which the evidence doc states plainly rather than rounding up. `docs/evidence/redis-budget-2026-08-21.md`. |
 | 13 | USGS/GDACS ingestion, zero auth, confirmed live | ✅ | Both adapters run against the live zero-auth endpoints; 218 `alert.ingested` audit events. GDACS uses `/SEARCH` (the spec's `/MAP` 400s without `eventtype`). |
 | 14 | Thunderstorm nowcast scores a real India district from live Open-Meteo | ⚠️ | `ThunderstormNowcastAdapter` exists and is unit-tested, but its `alert_source` row is seeded `enabled = false`, so it has never polled live. The seed comment ("enabled once the adapter exists") is stale now that it does. |
 | 15 | Citizen PWA resolves a nearest safe zone from real OSM rows | ✅ | Verified in the live PWA: *"Community Hall, Muttil · community_centre · 820 m"*, from the 281 Overpass-sourced `safe_zone` rows, with the road-conditions disclosure. |
@@ -53,7 +53,7 @@ account and an artifact respectively.
 | 22 | RBAC matrix is a table in the repo and every row has a test | ✅ | Part 26 is the table; **140** RBAC tests. Three rows had no allow/deny pair (`/units/{id}/vulnerability`, `POST /response`, `POST /citizen/device`) and now do. |
 | 23 | `freeze-guard.yml` live, and its block demonstrated once deliberately | ⚠️ | Live, guarding all Day-11 paths, epoch 21 Aug 21:00 IST. The block **cannot** be demonstrated until that timestamp passes — a few hours out at walk time. |
 | 24 | Redis-budget and health-check webhook pings each fired once | ❌ | `SLACK_OR_DISCORD_ALERT_WEBHOOK` is empty. Needs a webhook URL. |
-| 25 | Four-tile DEM check has a committed, dated pass/fail log | ❌ | No such log exists. Terrain data *is* loaded (`unit_features.terrain_ruggedness`, 1,375 rows) and the Copernicus `COG_10` naming correction is recorded in §3.6, but the dated four-tile artifact was never written. |
+| 25 | Four-tile DEM check has a committed, dated pass/fail log | ✅ | *(deploy)* Run for real against the Copernicus S3 bucket with `--no-sign-request`. Part 29's own literal command uses the wrong prefix (`COG_30`); corrected to `COG_10` (confirmed by listing), all 4 tiles present for Wayanad + Palghar, no SRTM fallback needed. `docs/evidence/dem-four-tile-check-2026-08-21.md`. |
 | 26 | Total spend: **₹0** | ✅ | Everything used is free-tier: Firebase Spark, Twilio *trial credit* (not purchased), ngrok free, Neon free, local Docker. No card charged. |
 
 ## [v3.0] Structural
@@ -113,13 +113,20 @@ account and an artifact respectively.
 
 ## Summary
 
+Re-tallied 21 Aug (evening) after #12 and #25 were closed with real
+measurements rather than left as assumptions.
+
 | Status | Count |
 |---|---|
-| ✅ Verified | **38** |
-| ⚠️ Partial, gap named | **10** |
-| ❌ Not done | **10** |
+| ✅ Verified | **41** |
+| ⚠️ Partial, gap named | **11** |
+| ❌ Not done | **6** |
 | 🚫 Waived with reason | **1** |
 | **Total** | **59** |
+
+(Re-counted directly from the table's own status column, not carried forward
+by arithmetic — the two prior tallies in this document's history had drifted
+from what the rows actually said.)
 
 **Every ❌ and every ⚠️ shares one of four causes**, none of which is unwritten
 code:
@@ -132,6 +139,9 @@ code:
 4. **An account we do not have** — HF Space for IndicTrans2, a Discord/Slack
    webhook for monitoring.
 
-Two artifacts are simply unwritten and could be produced without any of the
-above: the **four-tile DEM log** (#25) and the **Redis budget check** (#12).
-Those are the only two boxes on this list that are neither blocked nor done.
+**(deploy)** — #25 and #12 were the two exceptions: neither blocked nor done,
+just unmeasured. Both closed same-day: the DEM check found all four tiles
+present (once Part 29's own command was corrected), and the Redis re-derivation
+found a real problem — B3's idle polling alone exceeded the daily budget — and
+fixed it with a one-line config change, landing at 4.08× headroom rather than
+the stated 5×.
