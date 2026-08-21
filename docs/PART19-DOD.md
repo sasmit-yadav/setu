@@ -17,13 +17,19 @@ with what it needs · 🚫 waived, with the reason
 `ruff check services/` clean · 196 `app_config` rows · 8 channels ·
 32 capability tiers · 23 distinct audit event types.
 
+**Re-checked after deployment (21 Aug, evening).** The stack is now live:
+PWA https://setucitizen.vercel.app, API https://setu-api-6ujx.onrender.com,
+Neon, Upstash. Boxes the deploy changed are marked *(deploy)*. It did **not**
+move #3's push half, #12, #16 or #25 — those need a handset, a measurement, an
+account and an artifact respectively.
+
 ---
 
 ## From v2.0/v2.1 — unchanged, still binding
 
 | # | Box | Status | Evidence / reason |
 |---|---|---|---|
-| 1 | `git clone && make demo` on a fresh laptop | ❌ | `Makefile` and `python run.py demo` both exist and the gate runs locally, but nobody has cloned into a clean machine and timed it. Needs a second laptop — Day 12 item. |
+| 1 | `git clone && make demo` on a fresh laptop | ❌ | *(deploy)* The repo is now on GitHub at `sasmit-yadav/setu`, so a clone is finally possible — before this there was no remote at all. Still untimed on a clean machine. Day 12 item. |
 | 2 | PWA shows an alert + accepts an ack **with the cable unplugged** | ⚠️ | The data half is now real: after the service-worker fix, `setu-deliveries-v1` caches the alert *and* its safe zone, and the cached copy reads back headline, severity and Ed25519 signature with **no network**. The physical cable-pull with a human tapping ack is unrehearsed. |
 | 3 | A real push **and** a real SMS arrive on real phones | ⚠️ | **SMS: done** — real `provider_accepted` (`twilio_sms_send`) then a real carrier callback writing `device_delivered` (`twilio_sms_webhook`, 60 rows), signature-verified, to a verified handset. **Push: not done** — `delivery_event` has **0** rows with `source='fcm_send'`. The credential authenticates against the real project; no token has been minted. |
 | 4 | Every simulated delivery flagged in the DB **and** badged in the UI | ✅ | 308 rows with `simulated = true`; the `SIM` badge renders from that column (seen in the live PWA), and `channel_capability_tier` names sim's evidence source as `simulated_carrier_profile`. |
@@ -40,7 +46,7 @@ with what it needs · 🚫 waived, with the reason
 | 15 | Citizen PWA resolves a nearest safe zone from real OSM rows | ✅ | Verified in the live PWA: *"Community Hall, Muttil · community_centre · 820 m"*, from the 281 Overpass-sourced `safe_zone` rows, with the road-conditions disclosure. |
 | 16 | Translation runs on the 200M model on the actual free-tier host | ❌ | No HF Space deployed. `HF_SPACE_URL` is a placeholder. The API caches over HTTP only and never imports torch; PWA/IVR/relay fall back with a visible notice. |
 | 17 | `app_config` + extended `escalation_policy` seeded — every threshold a row | ✅ | 196 config rows, **0** with an empty note (three `severity.rank` rows were blank; fixed), 13 escalation-policy rows. `verify_seeds.py` now *fails* on drift instead of printing INFO. |
-| 18 | `services/ml` runs as its own Space; `services/api` has zero torch imports | ⚠️ | The isolation is real and enforced — `check_no_torch.py` green, `python run.py ml` runs `services.ml.server` on `:8001`, weights load only under `SETU_LOAD_ML_MODELS=1`. The *hosting* half is not done (see #16). |
+| 18 | `services/ml` runs as its own Space; `services/api` has zero torch imports | ⚠️ | The isolation is real and enforced — `check_no_torch.py` green, `python run.py ml` runs `services.ml.server` on `:8001`, weights load only under `SETU_LOAD_ML_MODELS=1`. *(deploy)* The Space image is now **built and run-tested**: `/health` reports honestly, `/translate` returns 503 `models_absent` instead of crashing, and a wrong `X-Internal-Key` returns 401. The *hosting* half is still not done (see #16). |
 | 19 | Pooled URL for the app, direct URL for migrations | ✅ | `DATABASE_URL_POOLED` / `DATABASE_URL_DIRECT` split in `settings.py`; `alembic` uses the direct DSN. |
 | 20 | **Retry backoff shows visible growth + jitter in a captured log from a forced-failure test** | ✅ | **This was unsatisfiable until today** — B3 was dead code (see §6.13). `docs/evidence/backoff-2026-08-21.md` is generated from the live policy rows: growth 60 → 90 → 135 s, jitter spread ±2.5 s, mean on the policy curve. Pinned by 16 tests. |
 | 21 | `.env.example` and the Part 25 table match; CI fails on drift | ✅ | `check_env_example.py` green. Grew by six keys today (five Firebase + `PGCRYPTO_SYM_KEY`). |

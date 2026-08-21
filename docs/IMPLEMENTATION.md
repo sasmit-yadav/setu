@@ -1235,6 +1235,157 @@ checks the path did what the product promises.
 
 ---
 
+### 6.14 Going live: the deployed topology, and eight things that broke on the way
+
+Deployed 21 Aug 2026. Four free-tier services, **₹0 total**, matching Part 22's
+split exactly.
+
+| Component | Host | URL |
+|---|---|---|
+| Citizen PWA | Vercel | `https://setucitizen.vercel.app` |
+| API | Render (free web) | `https://setu-api-6ujx.onrender.com` |
+| Postgres + PostGIS | Neon (Singapore) | `ep-damp-dust-az2n3wn2` |
+| Redis Streams | Upstash (Singapore) | `fresh-kingfish-106444` |
+| Delivery worker | **local process** → cloud data plane | `python run.py worker-cloud` |
+| ML service | Hugging Face Space | **not deployed** |
+
+#### Why the worker runs on a laptop
+
+Render's free tier has **no background workers**. The blueprint asked for
+`type: worker` with `plan: free`; Render accepted it and then *suspended* the
+service, which surfaces only as a "Suspended (1)" tab on the services list. The
+API stays green the whole time, so nothing looks wrong.
+
+That is survivable because the worker is not a server: nothing calls it, and it
+needs no inbound port — only Postgres and Redis, both now cloud-hosted. So
+`python run.py worker-cloud` runs it locally against the deployed data plane,
+and it is a genuine consumer of the real stream. `.env.cloud` (gitignored) holds
+the credentials.
+
+Two deliberate choices in that task:
+
+- **It refuses to fall back to `.env`** when `.env.cloud` is missing. Draining
+  the *local* queue while believing you are draining production is the worst
+  outcome of a typo: the deployed dispatch would sit in Upstash forever with
+  nothing consuming it, and every symptom would point at the API.
+- **`PUBLIC_BASE_URL` points at the Render API, not localhost.** The worker
+  builds Twilio status-callback URLs from it and Twilio must be able to reach
+  them; pointing it locally silently breaks the `device_delivered` rung.
+
+**Known limitation:** the worker dies when the laptop sleeps. For a demo that is
+acceptable (and the live logs are arguably an advantage). For real operation it
+needs Render Starter (~$7/mo) or to be folded into the API process.
+
+#### Eight things that broke, and what each one teaches
+
+**1. `pywin32` has no Linux wheel.** `requirements.txt` was frozen on Windows,
+so the first Render build died with `No matching distribution found for
+pywin32==312` — pip fails outright rather than skipping. Fixed with a PEP 508
+marker. Rather than fix-and-rebuild-blind, the whole file was then dry-run
+resolved inside a real `python:3.12-slim` container: it is the only
+Windows-only entry, `colorama` merely looks like one, and all 17
+native-extension packages ship manylinux wheels for 3.12.
+
+**2. Part 23's Neon DSN advice is now wrong, and repeating it causes the bug it
+was meant to prevent.** The spec says strip `?sslmode=require` because asyncpg
+rejects it. Verified against the live instance: asyncpg accepts the full URL and
+negotiates TLS itself — raw, fully-stripped and `ssl='require'` all connect.
+What breaks is stripping *one* parameter, because Neon now issues
+`?sslmode=require&channel_binding=require`; removing only the first leaves
+`&channel_binding=require` glued to the database name:
+
+```
+InvalidCatalogNameError: database "neondb&channel_binding=require" does not exist
+```
+
+which reads as a missing database rather than a malformed URL.
+
+**3. Env-group split-brain, and why it is invisible.** The blueprint declared
+`envVarGroups: setu-shared`, so Render created it — but Render can only fill
+*literal* values from a blueprint, and every credential is `sync: false`. The
+group was created with two entries; the operator filled a differently-named
+group by hand; the worker went on reading the empty one.
+
+The failure mode is the instructive part. `setu-api` carries its own `envVars`,
+so it serves logins, PostGIS queries and config perfectly while the worker boots
+with no database and dies. Dispatch returns `200`, enqueues to Redis, and nothing
+ever sends — on stage that is *"dispatched successfully"* with dots that never
+turn green. `render.yaml` no longer declares the group at all; it references a
+hand-managed one, with a comment explaining why.
+
+**4. Secret Files are per-service.** `fcm.json` added to `setu-api` is not
+visible to `setu-worker`. Since the worker is the process that actually calls
+FCM, the file has to live on the *env group* (which propagates) or be added to
+both. Miss it and `_ensure_firebase()` fails `os.path.isfile()`, raises
+`ChannelUnavailable`, and every push silently routes to the simulated carrier —
+reporting success.
+
+**5. Vercel rejects unknown keys in `vercel.json`.** A `comment` field inside a
+rewrite returns
+`Invalid request: rewrites[0] should NOT have additional property comment`.
+JSON has no comment syntax, so the reasoning for the rewrite exclusions lives in
+`docs/DEPLOY.md` instead — with a note saying why, so nobody helpfully puts it
+back.
+
+**6. The SPA rewrite is load-bearing.** `vercel.json` excludes `/sw.js`,
+`/registerSW.js`, `/manifest.webmanifest`, `/icon-*` and `/assets/*` from the
+catch-all. A naive rewrite returns `index.html` for `/sw.js`, the browser
+registers an HTML document as a service worker, and it dies — killing offline
+caching *and* the FCM receipt, which is exactly the failure §6.13 records from a
+different cause. Verified on the live deployment, not just in config:
+`/sw.js` serves as `application/javascript; charset=utf-8`.
+
+**7. A trailing slash in `CORS_ALLOWED_ORIGINS` blocks everything.** Browsers
+send `Origin: https://setucitizen.vercel.app` — **never** with a trailing slash.
+Configured with one, the API returns `access-control-allow-credentials` but no
+`access-control-allow-origin`, so every request from the PWA is blocked by the
+browser with nothing in the server logs to explain it. One character, total
+outage, no error anywhere.
+
+**8. `push_geometry_to_neon.py` is not safe to interrupt.** A timed-out
+bootstrap left **5,500 duplicate ADM3 rows** on Neon (8,302 → 13,802), because
+`lgd_code` is NULL on every row so the push has no natural key to be idempotent
+on. Recovered via `fetched_at` as a discriminator after confirming all nine
+foreign keys had zero references to the new rows.
+
+#### The signing-key trap
+
+`VITE_ALERT_SIGNING_PUBKEY_B64` must be the public key **derived from the
+`ALERT_SIGNING_SEED_B64` actually in use** — not a freshly generated one.
+`scripts/gen_secrets.py` mints a new random keypair on every run, so using its
+output here produces a PWA whose public key does not match the server's seed,
+and `verify()` discards every signed alert as tampered. The correct value is
+whatever `GET /api/v1/public/signing-key` returns. Confirmed identical on the
+deployed stack, and confirmed baked into the served bundle.
+
+#### Deployed state, verified end to end
+
+| Check | Result |
+|---|---|
+| `GET /health` | `{"status":"ok"}` |
+| Real login vs Neon | 236-char JWT — proves `0013_auth` + provisioned hashes |
+| `/auth/me` | `role=officer`, `unit_scope_id=3081` (Vythiri) |
+| `/ops/map` | 39 village features, clipped to officer geometry |
+| `/public/signing-key` | real Ed25519 key, matches the PWA bundle |
+| `/public/config` | 5 firebase keys + VAPID, 42 keys total |
+| PWA `sw.js` | `application/javascript` — rewrite guard held |
+| PWA manifest + icons | `application/manifest+json`, both PNGs |
+| CORS | allows the Vercel origin and `localhost:5173` |
+| Worker → Upstash | probe entry read, processed, acked (`entries-read=1`, `lag=0`) |
+
+**Note on Upstash:** `XINFO GROUPS` reports `consumers=0` even while actively
+consuming, so the consumer count is not a usable liveness signal there.
+`entries-read` and `lag` are.
+
+#### Still zero on the deployed stack
+
+`SELECT COUNT(*) FROM delivery_event WHERE source='fcm_send'` is **0**. Every
+piece of the push path is wired and verified; what remains is a human granting
+notification permission on a real handset. Until then the primary channel is
+unproven, which is Part 16 Day 4's exit-gate criterion.
+
+---
+
 ## 7. Frontend
 
 Two apps that deliberately invert on almost every axis. Part 0.4 is explicit
