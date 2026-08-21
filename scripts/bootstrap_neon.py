@@ -53,6 +53,7 @@ def main() -> int:
         ([sys.executable, "-m", "alembic", "upgrade", "head"], "migrate"),
         ([sys.executable, "scripts/upsert_app_config.py"], "app_config"),
         ([sys.executable, "scripts/push_geometry_to_neon.py"], "geometry"),
+        ([sys.executable, "scripts/provision_demo_accounts.py"], "provision_demo"),
     ]
     for cmd, label in steps:
         code = run_step(env, cmd, label)

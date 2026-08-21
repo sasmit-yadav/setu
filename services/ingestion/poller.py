@@ -6,8 +6,9 @@ import asyncpg
 import httpx
 
 from services.ingestion.adapters.gdacs import GdacsAdapter
+from services.ingestion.adapters.thunderstorm import ThunderstormNowcastAdapter
 from services.ingestion.adapters.usgs import UsgsAdapter
-from services.ingestion.normalize import parse_gdacs, parse_usgs
+from services.ingestion.normalize import parse_gdacs, parse_thunderstorm, parse_usgs
 from services.ingestion.persist import upsert_alert
 from services.ingestion.registry import load_adapters
 from services.ingestion.types import NotModified, QuarantineAlert
@@ -56,6 +57,8 @@ async def poll_source(conn: asyncpg.Connection, source_id: str, since: datetime 
             elif isinstance(adapter, GdacsAdapter):
                 metadata = await _gdacs_metadata(adapter, identifier)
                 parsed = await parse_gdacs(conn, identifier, raw, metadata)
+            elif isinstance(adapter, ThunderstormNowcastAdapter):
+                parsed = await parse_thunderstorm(conn, raw)
             else:
                 continue
             alert_id = await upsert_alert(conn, parsed)

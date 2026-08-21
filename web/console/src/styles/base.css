@@ -25,6 +25,17 @@ body {
   font-size: var(--fs-base);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--state-info) 35%, transparent);
+  color: var(--text-primary);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) var(--bg-base);
 }
 
 /* EVERY count, timestamp and duration. Non-negotiable (Part 11.1). */

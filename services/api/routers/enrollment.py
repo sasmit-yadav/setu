@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
+from services.api.auth import Principal
 from services.api.deps import get_conn
+from services.api.rbac import require_officer
 from services.enrollment.csv_import import CsvImportError, import_csv
 
 router = APIRouter(prefix="/api/v1/admin", tags=["enrollment"])
@@ -14,6 +16,7 @@ async def import_recipients(
     preview_token: str | None = Query(default=None),
     file: UploadFile = File(...),
     conn=Depends(get_conn),
+    principal: Principal = Depends(require_officer),
 ) -> dict:
     content = await file.read()
     try:
@@ -21,7 +24,7 @@ async def import_recipients(
             conn,
             content,
             dry_run=dry_run,
-            actor="officer",
+            actor=principal.email,
             preview_token=preview_token,
         )
     except CsvImportError as exc:

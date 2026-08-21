@@ -8,7 +8,9 @@ from services.api import config_repo
 from services.api.auth import Principal
 from services.api.deps import get_conn, get_idempotency_key, get_redis
 from services.api.rbac import (
+    CITIZEN,
     assert_alert_in_scope,
+    require_alert_read,
     require_officer,
     require_operational_read,
 )
@@ -24,21 +26,25 @@ from services.api.schemas import (
     DispatchResponse,
     NewVersionRequest,
     NewVersionResponse,
+    PatchAlertRequest,
     PreviewResponse,
     RuleResultOut,
     ValidateResponse,
 )
+from services.audit.ledger import append_audit
 from services.delivery.assurance_ladder import alert_assurance
 from services.delivery.engine import DispatchError, QualityGateBlocked, dispatch_alert
 from services.governance.approvals import (
     ApprovalError,
     approval_count,
     approve,
+    is_authoritative_source,
     required_count,
 )
 from services.governance.composer import (
     ComposeError,
     create_draft_alert,
+    patch_draft_alert,
     preview_exposure,
 )
 from services.governance.quality_gate import (
@@ -47,6 +53,7 @@ from services.governance.quality_gate import (
     validate,
 )
 from services.governance.versioning import VersionInFlightError, create_new_version
+from services.ml.translate import ensure_translations
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -77,6 +84,32 @@ async def create_alert(
     return CreateAlertResponse(**result)
 
 
+@router.patch("/{alert_id}", response_model=PreviewResponse)
+async def patch_alert(
+    alert_id: int,
+    body: PatchAlertRequest,
+    conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_officer),
+) -> PreviewResponse:
+    exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="alert_not_found")
+    await assert_alert_in_scope(conn, principal, alert_id)
+    try:
+        result = await patch_draft_alert(
+            conn,
+            alert_id,
+            expires_at=body.expires_at,
+            headline=body.headline,
+            body=body.body,
+            severity=body.severity,
+            actor=principal.email,
+        )
+    except ComposeError as exc:
+        raise HTTPException(status_code=422, detail={"error": exc.code, "message": exc.message}) from exc
+    return PreviewResponse(**result)
+
+
 @router.get("", response_model=list[AlertSummaryOut])
 async def list_alerts(
     lifecycle_status: str | None = None,
@@ -84,23 +117,32 @@ async def list_alerts(
     limit: int | None = None,
     offset: int = 0,
     conn: asyncpg.Connection = Depends(get_conn),
-    principal: Principal = Depends(require_operational_read),
+    principal: Principal = Depends(require_alert_read),
 ) -> list[AlertSummaryOut]:
+    if principal.role == CITIZEN and principal.unit_scope_id is None:
+        return []
     effective_limit = limit if limit is not None else await config_repo.get_int(conn, "api.list_default_limit")
+    citizen_unit = principal.unit_scope_id if principal.role == CITIZEN else None
     rows = await conn.fetch(
         """
-        SELECT id, incident_id, source_id, severity, headline, lifecycle_status,
-               effective_at, expires_at
-        FROM alert
-        WHERE ($1::text IS NULL OR lifecycle_status = $1)
-          AND ($2::text IS NULL OR severity = $2)
-        ORDER BY effective_at DESC
+        SELECT a.id, a.incident_id, a.source_id, a.severity, a.headline, a.lifecycle_status,
+               a.effective_at, a.expires_at, COALESCE(s.is_authoritative, false) AS is_authoritative
+        FROM alert a
+        LEFT JOIN alert_source s ON s.source_id = a.source_id
+        WHERE ($1::text IS NULL OR a.lifecycle_status = $1)
+          AND ($2::text IS NULL OR a.severity = $2)
+          AND (
+            $5::bigint IS NULL
+            OR ST_Intersects(a.area, (SELECT geom FROM admin_unit WHERE id = $5))
+          )
+        ORDER BY a.effective_at DESC
         LIMIT $3 OFFSET $4
         """,
         lifecycle_status,
         severity,
         effective_limit,
         offset,
+        citizen_unit,
     )
     return [
         AlertSummaryOut(
@@ -112,6 +154,7 @@ async def list_alerts(
             lifecycle_status=row["lifecycle_status"],
             effective_at=row["effective_at"].isoformat(),
             expires_at=row["expires_at"].isoformat() if row["expires_at"] else None,
+            is_authoritative=bool(row["is_authoritative"]),
         )
         for row in rows
     ]
@@ -121,7 +164,7 @@ async def list_alerts(
 async def get_alert(
     alert_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
-    principal: Principal = Depends(require_operational_read),
+    principal: Principal = Depends(require_alert_read),
 ) -> AlertDetailOut:
     row = await conn.fetchrow(
         """
@@ -133,6 +176,21 @@ async def get_alert(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="alert_not_found")
+    if principal.role == CITIZEN:
+        if principal.unit_scope_id is None:
+            raise HTTPException(status_code=404, detail="alert_not_found")
+        visible = await conn.fetchval(
+            """
+            SELECT ST_Intersects(a.area, u.geom)
+            FROM alert a
+            JOIN admin_unit u ON u.id = $2
+            WHERE a.id = $1
+            """,
+            alert_id,
+            principal.unit_scope_id,
+        )
+        if not visible:
+            raise HTTPException(status_code=404, detail="alert_not_found")
     target_count = await conn.fetchval(
         """
         SELECT COUNT(DISTINCT r.id)
@@ -158,6 +216,9 @@ async def get_alert(
         effective_at=row["effective_at"].isoformat(),
         expires_at=row["expires_at"].isoformat() if row["expires_at"] else None,
         target_count=int(target_count or 0),
+        is_authoritative=await is_authoritative_source(conn, alert_id),
+        approval_have=await approval_count(conn, alert_id),
+        approval_need=await required_count(conn, row["severity"]),
     )
 
 
@@ -183,12 +244,33 @@ async def validate_alert(
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
         raise HTTPException(status_code=404, detail="alert_not_found")
+    await ensure_translations(conn, alert_id)
     results = await validate(conn, alert_id)
     await persist_results(conn, alert_id, results)
+    blocked = has_blocking_failure(results)
+    if blocked:
+        # This is the validation the officer actually triggers from the composer
+        # (Part 16's Day-9 run, step 3), so it is the one that has to appear in
+        # the incident timeline. persist_results() writes alert_validation_result
+        # but that table is per-rule state, not a ledger entry — without this the
+        # timeline can never show alert.validation_failed.
+        await append_audit(
+            conn,
+            alert_id=alert_id,
+            event_type="alert.validation_failed",
+            payload={
+                "failures": [
+                    {"rule_id": r.rule_id, "message": r.message}
+                    for r in results
+                    if r.status == "fail"
+                ]
+            },
+            actor=principal.email,
+        )
     return ValidateResponse(
         alert_id=alert_id,
         results=[RuleResultOut(rule_id=r.rule_id, status=r.status, message=r.message) for r in results],
-        blocked=has_blocking_failure(results),
+        blocked=blocked,
     )
 
 
@@ -212,7 +294,7 @@ async def approve_alert(
         raise HTTPException(status_code=404, detail="alert_not_found")
     await assert_alert_in_scope(conn, principal, alert_id)
     severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
-    await approve(conn, alert_id, principal.user_id, reason=body.reason)
+    await approve(conn, alert_id, principal.user_id, reason=body.reason, actor=principal.email)
     have = await approval_count(conn, alert_id)
     need = await required_count(conn, severity)
     return ApproveResponse(alert_id=alert_id, have=have, need=need)
@@ -348,7 +430,7 @@ async def alert_deliveries(
     exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
     if not exists:
         raise HTTPException(status_code=404, detail="alert_not_found")
-    effective_limit = limit if limit is not None else await config_repo.get_int(conn, "api.list_default_limit")
+    effective_limit = limit if limit is not None else await config_repo.get_int(conn, "api.deliveries_list_limit")
     rows = await conn.fetch(
         """
         SELECT d.id, d.recipient_id, c.code AS channel_code, d.state, d.simulated,

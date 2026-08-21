@@ -88,6 +88,15 @@ function registerApiRoutes(cfg: PwaCfg) {
     new NetworkOnly({ plugins: [receiptQueue] }),
     "POST",
   );
+
+  const relayQueue = new BackgroundSyncPlugin("setu-relay-receipt-queue", {
+    maxRetentionTime: cfg.receiptRetentionMinutes,
+  });
+  registerRoute(
+    ({ url, request }) => url.pathname === "/api/v1/relay/receipt" && request.method === "POST",
+    new NetworkOnly({ plugins: [relayQueue] }),
+    "POST",
+  );
 }
 
 async function bootstrap() {
@@ -122,7 +131,7 @@ self.addEventListener("push", (event) => {
         try {
           await postReceipt(data.delivery_id, data.receipt_nonce, "device_delivered");
         } catch {
-          return;
+          undefined;
         }
       }
     })(),
@@ -139,7 +148,7 @@ self.addEventListener("notificationclick", (event) => {
         try {
           await postReceipt(deliveryId, data.receipt_nonce, "notification_opened");
         } catch {
-          return;
+          undefined;
         }
       }
       const url = deliveryId ? `/?delivery_id=${deliveryId}` : "/";

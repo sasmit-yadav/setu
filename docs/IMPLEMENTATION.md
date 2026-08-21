@@ -208,25 +208,27 @@ Full detail in §7; this is the stack summary only.
 | App | Path | Stack | Status |
 |---|---|---|---|
 | Citizen PWA | `web/citizen/` | Vite + React 19 + Workbox | ✅ MVP — offline-capable |
-| Officer console | `web/console/` | Vite + React 19 + lucide-react | ✅ 2 of 5 event-time screens (§7.3) |
+| Officer console | `web/console/` | Vite + React 19 + lucide-react | ✅ 3 of 5 event-time screens (§7.3) |
 
 The two apps share **no** styling or components. Part 0.4's governing
 decision is that they invert on almost every axis (dark/light, dense/sparse,
 keyboard/thumb, network-present/network-absent), so the three components that
 appear in both are designed twice rather than shared.
 
-**Citizen PWA (`web/citizen/`):** offline-capable alert viewer and response
-flow. All runtime tuning (PWA cache timeouts, BackgroundSync retention,
-`response.free_text_max_chars`) comes from `GET /api/v1/public/config` —
-no hardcoded fallbacks in `App.tsx` or `sw.ts` (enforced by
-`scripts/check_pwa_config.py` in CI). Ed25519 verify key from env
+**Citizen PWA (`web/citizen/`):** light-first alert viewer and C6 response
+flow (18px body, 44px targets, `theme-color` `#f4f6f8`). All runtime tuning
+(PWA cache timeouts, BackgroundSync retention, `response.free_text_max_chars`,
+help types and labels) comes from `GET /api/v1/public/config` — no hardcoded
+fallbacks in `App.tsx` or `sw.ts` (enforced by `scripts/check_pwa_config.py`
+in CI). Ed25519 verify key from env
 (`VITE_ALERT_SIGNING_PUBKEY_B64`) or `GET /api/v1/public/signing-key`.
 Push notifications require Firebase + VAPID (blocked — manual delivery ID
 works for dev). Dev server proxies `/api` → `localhost:8000` in
 `vite.config.ts` only — not a production config path.
 
-**Officer console:** planned dark-first ops UI for compose → preview →
-validate → approve → dispatch. Backend routes exist; no React code yet.
+**Officer console:** dark-first ops UI — Live Operations, Alert Detail,
+Assistance queue. Compose still happens via API; remaining event-time
+screens in §7.3.
 
 ### 3.5 Local infrastructure
 
@@ -427,7 +429,7 @@ this is expected (down-migrations are destructive by design), not a bug.
 | `01_channels.sql` | 8 channels, 13 escalation-policy rows across 4 severities | 8 + 13 |
 | `02_channel_capability.sql` | `channel_capability_tier`, 4 tiers × 8 channels | 32 |
 | `03_alert_sources.sql` | 6 alert sources (usgs, gdacs, thunderstorm_nowcast, manual, sachet, imd — last two disabled) | 6 |
-| `04_app_config.sql` | every threshold, keyed and noted | 118 |
+| `04_app_config.sql` | every threshold, keyed and noted | 131 |
 | `05_relay_nodes.sql` | 6 demo relay nodes — **currently placeholder ciphertext**, real geometry join | 6 (was 0 until §5.4's geometry load) |
 | `06_app_users.sql` | all six Part 26 roles, `password_hash` **NULL** — "cannot log in", never "any password works" (§6.10) | 6 |
 
@@ -623,12 +625,16 @@ a module ships. Last verified: **76/76 pytest green** against local Docker
 | GET | `/api/v1/units/{id}/reachability` | D7f view | ✅ |
 | GET | `/api/v1/units/{id}/vulnerability` | D8f view | ✅ |
 | GET | `/api/v1/units/{id}/risk` | D12f risk + factors | ✅ |
+| GET | `/api/v1/ops/map` | D1f GeoJSON units (+ unused alert FC); officer envelope + finest level + geom clip | ✅ |
+| GET | `/api/v1/ops/summary` | Live Ops KPI strip | ✅ |
+| GET | `/api/v1/ops/feed` | Delivery-event kill feed | ✅ |
 | GET | `/api/v1/alerts/{id}/assurance` | B8 assurance ladder | ✅ |
 | GET | `/api/v1/alerts/{id}/deliveries` | Delivery rows + assurance level | ✅ |
 | POST | `/api/v1/ack` | Citizen acknowledgement (idempotent) | ✅ |
 | POST | `/api/v1/deliveries/{id}/receipt` | B8 SW receipt (nonce-checked) | ✅ |
 | POST | `/api/v1/response` | C6 structured citizen response | ✅ |
-| GET | `/api/v1/assistance` | D11f queue (priority-ordered) | ✅ |
+| GET | `/api/v1/assistance` | D11f queue (officer full; auditor stripped) | ✅ |
+| GET | `/api/v1/assistance/summary` | §12.2 count + area (relay_node allowed) | ✅ |
 | GET | `/api/v1/assistance/{id}` | D11f case detail + factors | ✅ |
 | POST | `/api/v1/assistance/{id}/assign` | D11f assignment | ✅ |
 | GET | `/api/v1/incidents/{id}` | F2 version chain | ✅ |
@@ -641,15 +647,14 @@ a module ships. Last verified: **76/76 pytest green** against local Docker
 | POST | `/webhooks/sms-status` | Twilio delivery status | ✅ |
 | POST | `/webhooks/ivr-status` | IVR DTMF → citizen response | ✅ |
 
-CORS allows `http://localhost:5173` for citizen PWA dev (`services/api/main.py`).
+CORS allows `http://localhost:5173` / `:5174` (console and citizen) in `services/api/main.py`. Dev still prefers the Vite same-origin proxy.
 
 **Env-gated live channels:** FCM, SMS, IVR, email adapters send for real when
 credentials are present; otherwise worker catches `ChannelUnavailable` and
 uses `SimulatedCarrierAdapter`. Firebase/Twilio/Brevo still blocked for most
 deployments — sim path is honest, not silent.
 
-**Not wired yet:** B10 peer relay receipt, B9 full human-relay call flow,
-PDF audit report, officer console UI, E1 RBAC on mutating routes.
+**Not wired yet (external, not code):** live FCM `provider_accepted` IDs, live SMS/IVR/B9 DTMF, two-Android B10 GATT. Gate 3 has a committed Protomaps extract (`python run.py fetch-basemap`, earth/water/roads, India bbox `68,6,98,38`, maxzoom **6**, ~2.6 MB). Spec still asks for Wayanad+Palghar z12; **cable-pull is unrehearsed**. IndicTrans2 still needs an HF Space host — the API only caches over HTTP; `services.ml.server` loads weights only when `SETU_LOAD_ML_MODELS=1`.
 
 **Process entry points** (via `python run.py …`):
 
@@ -665,6 +670,9 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 | `import-enrollment` | `scripts/import_enrollment_csv.py` |
 | `verify-data` | `scripts/verify_data_layer.py` |
 | `citizen-dev` | Vite dev server `:5173` |
+| `snapshot` | `scripts/snapshot.py` |
+| `fetch-basemap` | `scripts/fetch_basemap.py` (go-pmtiles extract, placeholder fallback) |
+| `demo` | `scripts/guard_local_only.py` → migrate → snapshot load/verify |
 
 ### 6.2 Ingestion (`services/ingestion/`)
 
@@ -720,10 +728,11 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 - **`citizen_response.py`** — idempotent `POST /response` handler;
   `CHECK (location IS NULL OR location_consent=true)` enforced at DB;
   writes `delivery_event` tier `citizen_response`; emits
-  `citizen.response_received` audit event. Free-text cap from
-  `response.free_text_max_chars`.
-- **`assistance_queue.py`** — auto-opens `assistance_case` for
-  `trapped|medical|unable_to_evacuate|other`; priority from
+  `citizen.response_received` audit event. Allowed types from
+  `response.help_types` + `response.safe_type`; free-text types from
+  `response.free_text_types`; cap from `response.free_text_max_chars`.
+- **`assistance_queue.py`** — auto-opens `assistance_case` for every type
+  in `response.help_types`; priority from
   `priority.py` weighted sum (Rule 10 — full factors stored in
   `priority_factors` JSONB). List limit from `api.list_default_limit`.
 - **`services/enrollment/`** — `phone_hash.py` (HMAC dedupe),
@@ -768,6 +777,9 @@ PDF audit report, officer console UI, E1 RBAC on mutating routes.
 | `alert.manual.default_radius_km` | Point-alert buffer when no polygon |
 | `enrollment.*` | CSV caps, phone digit lengths, SMS keywords/replies |
 | `ivr.dtmf.*`, `ivr.prompt.main` | Twilio Gather prompts and digit map |
+| `response.help_types` / `response.safe_type` / `response.free_text_types` / `response.location_prompt_types` / `response.label.*` | C6 choices and copy — PWA and queue render from these |
+| `response.geolocation_timeout_ms` | Browser GPS wait when a location-prompt type is tapped |
+| `api.deliveries_list_limit` / `ui.ladder_extra_sample` | Alert Detail delivery list + extra ladders after one-per-channel |
 
 ### 6.9 Hardcoding policy — what's allowed where
 
@@ -780,8 +792,8 @@ API) or `scripts/db_config_sync.py` (sync loaders).
 
 | Guard | Scope |
 |---|---|
-| `scripts/check_no_hardcoding.py` | `services/delivery`, `targeting`, `governance`, `response`, `enrollment`, `ingestion` — flags bare numeric literals in `Compare`/`BinOp` except `{0,1,-1,2,100}` and subscripts |
-| `scripts/check_pwa_config.py` | `web/citizen/src` — flags hardcoded PWA timeouts and `freeTextMax` defaults |
+| `scripts/check_no_hardcoding.py` | Python AST in `services/{delivery,targeting,governance,response,enrollment,ingestion,api,ml}`; SQL VIEW comparisons in `data/seeds` + `migrations`; TS comparisons in `relay.ts` / `verify.ts` / `response.ts` / `sw.ts`. Allowlist `{0,1,-1,2,100}` (SQL also 4326). TwiML covered by `tests/unit/test_twiml_has_no_literals.py` |
+| `scripts/check_pwa_config.py` | `web/citizen` — flags hardcoded PWA timeouts, C6 `HELP_TYPES`, dark `#0f172a` theme |
 | `scripts/check_channel_capability.py` | Adapter tier flags vs `channel_capability_tier` table |
 
 **Explicit exceptions (not bugs):**
@@ -798,7 +810,7 @@ API) or `scripts/db_config_sync.py` (sync loaders).
 **Citizen PWA:** service worker registers API caching routes only after
 `GET /api/v1/public/config` succeeds — no in-code fallback for
 `pwa.network_timeout_seconds` etc. App UI waits for config before enabling
-free-text `maxLength`.
+free-text `maxLength`, C6 choice buttons, and geolocation timeout.
 
 ### 6.10 Authentication and RBAC (Part 26)
 
@@ -878,21 +890,59 @@ tests cover Part 26's matrix allow-and-deny per role, plus signature
 tampering and a role-escalation attempt that rewrites `role` in the JWT
 payload.
 
-### Still open
+### Unit scope at provision time
 
 `services/api/rbac.py` provides `assert_unit_in_scope` /
-`assert_alert_in_scope`, and they are wired into the alert write path — but
-the seeded accounts all have `unit_scope_id = NULL` (unscoped), because
-`admin_unit` ids are `BIGSERIAL` and not stable across a geometry reload.
-Assigning real scopes needs a lookup step at provisioning time. Until then,
-"officer" is effectively national, which is correct for a single-district
-deployment and wrong for a multi-district one — recorded here so the absence
-of a check is not mistaken for an oversight.
+`assert_alert_in_scope`, wired into the alert write path **and** unit
+read path (`/units/{id}/reachability|vulnerability|risk`). Seed SQL still
+leaves `unit_scope_id` NULL because `admin_unit` ids are `BIGSERIAL`.
+`python run.py provision-demo` (also run at the end of `python run.py demo`)
+assigns scopes by ILIKE name lookup from `demo.unit_scope.<email>` in
+`app_config`. Both demo officers share **Vythiri** (ADM3, id 3081) so
+Four-Eyes can approve the same alert. Citizen and relay use **Muttil North**
+(ADM5, id 8157 — the village that contains Meppadi). `state_admin` and
+`auditor` stay unscoped. geoBoundaries has no row named Wayanad.
 
-Routers still to protect: `assistance`, `incidents`, `units`, `enrollment`,
-`response`, `ack`, `receipts`, `citizen`. The three §12.2 rows (auditor
-aggregate-only, relay_node never, citizen own-data-only) live in those files
-and are the highest-value remaining work.
+**`parent_id` is unused.** Every one of the 8,302 `admin_unit` rows has
+`parent_id IS NULL` — geoBoundaries ADM3 and ADM5 were loaded as two
+independent layers, with no tree. The recursive `parent_id` walk in
+`assert_unit_in_scope` therefore never treats Muttil North as a child of
+Vythiri. Clicking village 8157 on the live map returned **403 `unit_scope`**
+until the check also allowed
+
+```sql
+ST_Intersects(scope.geom, target.geom)
+```
+
+A Vythiri officer can open any ADM5 whose geometry intersects Vythiri
+(39 villages). An ADM5 that only sat in Vythiri's **bbox** but not its
+polygon stays 403; `/ops/map` now filters by officer geom so those
+neighbours are not painted. Covered by
+`tests/unit/test_rbac.py::test_officer_scope_covers_contained_village`.
+
+Citizen PWA signs in through `POST /api/v1/auth/login`. It does not require
+a pasted `VITE_CITIZEN_ACCESS_TOKEN`. Prefill email is `demo.citizen_email`
+from public config. Passwords are bcrypt'd only when `SETU_DEMO_PASSWORD` is
+set in `.env` (never in SQL).
+
+Routers still to protect: none of the originally listed set — `assistance`,
+`incidents`, `units`, `enrollment`, `response`, `ack`, `citizen` now depend
+on `require_*` the same way `alerts.py` does. Receipts stay nonce-gated
+(Part 26: "nonce-gated, not role-gated").
+
+§12.2, as implemented:
+
+- **auditor** on `/assistance` — 200, but `citizen_response_id`, `free_text`,
+  `lat`, `lon` are omitted. Priority, status, unit, response type remain.
+- **relay_node** on `/assistance` and `/assistance/{id}` — **403**. Count and
+  area only, via `GET /assistance/summary` (`open_count` per unit, no
+  response types, no household list).
+- **citizen** write paths (`POST /ack`, `POST /response`,
+  `GET /citizen/deliveries/{id}`) — `citizen` / `officer` / `state_admin` /
+  `relay_node`. Auditor is 403.
+
+`assigned_by` is taken from the authenticated principal, never the body
+(same shape as `approver_id`).
 
 ---
 
@@ -1132,15 +1182,107 @@ the source value in the `title`. Same principle as the struck-through rung: *a
 missing signal and a negative signal are different facts and must never render
 identically.*
 
-### 7.3 What the console does not have yet
+### 7.3 What the console still does not have
 
-Only **Live Operations** and **Alert Detail** are built. Part 0.4.3 names five
-screens that belong in navigation during an event; three are missing —
-**Incident timeline (D10f)**, **Assistance Queue (D11f)**, **Command Board
-(D9f)** — along with **Methodology**. There is no MapLibre map (D1f) and no
-WebSocket live feed yet; the screen polls on load and on explicit refresh.
-The command palette currently registers two commands, so it is wired but not
-yet carrying the 28-feature load it exists to solve.
+The event-time screens Part 0.4.3 named are built: Live Operations, Alert
+Detail, Assistance, Incident, Command Board, Methodology, plus Analytics,
+Relay, Enrollment, and Compose. WebSocket `/api/v1/ws/ops` drives the live
+feed. Remaining gaps are operational, not missing screens:
+
+- **Gate 3 cable-pull** is unrehearsed. The `.pmtiles` file and HTML village
+  labels are local. Place-name / road / water **glyphs** still fetch
+  `protomaps.github.io/basemaps-assets` when online; unplug and those labels
+  vanish, village names stay.
+- Console **refresh token is memory-only**. A tab reload drops it; the
+  officer signs in again. That is deliberate (shared DEOC machine), not a bug.
+- Uvicorn `--reload` will sit on "Reloading…" while a `/ws/ops` socket is
+  open. Restart the API process after `rbac.py` / router edits or the browser
+  keeps talking to the old worker.
+- Live FCM, Twilio, two-phone GATT, IndicTrans2 output, and a real enrollment
+  CSV are still the blocked list in `TASK.md`.
+
+### 7.4 Live map (D1f), Compose (A3), and what is *not* on the map
+
+The map is a **reachability choropleth**, not a hazard layer. That split is
+the product:
+
+| Surface | What it shows | Source |
+|---|---|---|
+| Live Ops map | Unit polygons coloured by `recipient_reach_pct`; labelled names | `GET /api/v1/ops/map` |
+| Live Ops table / "Where is trouble" | Ingested and manual alerts | `GET /api/v1/alerts` |
+| Compose **Incoming sources** | Same alert rows (active first) | `GET /api/v1/alerts` |
+| Compose draw | Officer-drawn polygon for a **new** warning | POST `/api/v1/alerts` GeoJSON |
+| Unit panel | Reachability, vulnerability, reach-risk | `GET /api/v1/units/{id}/…` |
+
+Active-alert polygons are **not** filled on Live Ops. Painting ingest
+geometry there looked like a pre-marked danger zone and hid the officer's
+job: read a source, then draw. A radar ping still fires for *newly arrived*
+alert centroids on Live Ops only (`draw` mode skips it).
+
+**Runtime bugs found by opening the pane, not reading the component:**
+
+1. **MapLibre worker 404.** Vite prebundled a missing
+   `/node_modules/.vite/deps/maplibre-gl-worker.mjs`. Fix:
+   `setWorkerUrl` from `maplibre-gl/dist/maplibre-gl-worker.mjs?url` and
+   `optimizeDeps.exclude: ["maplibre-gl"]`.
+2. **India zoom + random ADM3.** Unscoped `/ops/map` used the India bbox and
+   `LIMIT 800` with no `ORDER BY`. A scoped officer now gets their
+   `unit_scope_id` envelope (Vythiri), then the **finest level in that
+   envelope** (ADM5, 39 villages that actually intersect the taluk geom).
+   Nationwide choropleth stays `map.geometry_level` (3).
+3. **Yellow soup.** Dozens of test "Headline" polygons filled the pane.
+   Alert fill/line layers were removed from Live Ops entirely.
+4. **0-pixel pane.** `.live-map-wrap { min-height: 520px }` does not size a
+   MapLibre container — the canvas is `position: absolute`. Without
+   `.live-map { height: 520px }` the wrap reports height 0 and the map
+   disappears while the rest of Live Ops still renders.
+5. **Click 403 on a labelled village.** See **Unit scope at provision time**
+   (`parent_id` empty; geographic `ST_Intersects`).
+
+**Labels.** MapLibre symbol layers need a `glyphs` URL; the style now points
+at Protomaps Noto Sans for `places` / `water` / `roads` when the basemap
+source attaches. Village names do **not** depend on that — they are HTML
+markers (`.map-unit-label`), one per unit, skipped if the payload has more
+than 80 features (India ADM3 would be unreadable).
+
+**Basemap extract.** `scripts/fetch_basemap.py` currently cuts India
+`68,6,98,38` at maxzoom **6** (~2.6 MB). Earth/water/roads attach *after*
+`load` so a missing `.pmtiles` cannot block the GeoJSON choropleth. Spec
+Risk 22 still wants Wayanad + Palghar at z12; this file is the smaller
+honest substitute until that extract is regenerated.
+
+**Compose briefing.** The officer does not invent a hazard from a blank map.
+Compose loads `/alerts`, lists incoming rows (source, severity, headline,
+AUTO-AUTH). Clicking a row copies **that row's** severity and headline into
+the form; Open goes to the existing alert. Severity starts empty — there is
+no default `severe`. `target_count_plausible` is still correct: dispatch
+needs ≥1 consented recipient whose unit geom intersects the drawn polygon.
+`GET /units/{id}/vulnerability` no longer 404s if `v_communication_vulnerability`
+has no row (the view `JOIN`s `unit_features`); it returns
+`unknown_connectivity_features_pending` so a missing OpenCelliD feature
+does not blank the unit page.
+
+### 7.5 Operational figures in the console are class ①–④, never ⑤
+
+Part 38.2: population, alerts, and hazards are not literals in TypeScript.
+
+| Figure | Class | Where it comes from |
+|---|---|---|
+| Unit population / reach % | ① WorldPop in `admin_unit.population`, ② `v_reachability` | `GET /units/{id}/reachability` |
+| Live Ops KPIs (targeted / delivered / ack / at-risk) | ② | `GET /ops/summary` — notes on the tiles are the SQL definition, not a made-up denominator |
+| Alert list, ticks, Compose incoming | ① ingest + ③ officer drafts | `GET /alerts` (`source_id`, `is_authoritative`, `headline`) |
+| Hazard / target area | ③ officer draw, or ingest `alert.area` on the **detail** of that row | never a static GeoJSON in `web/console` |
+| Channel capability / struck rungs | ③ seeded `channel_capability_tier` | `GET /alerts/{id}/assurance` |
+| Command Board tiles | ② D7f/D8f/D11f/B8 | `GET /incidents/{id}/board` — the component has no operational numeric literals (HTTP 403 is RFC) |
+| Quality-gate pass/fail | ③ `app_config` floors, ② rule eval | `POST /alerts/{id}/validate`; UI labels `rule_id`, it does not invent results |
+
+A village with NULL population renders **no population**, not a guessed
+headcount. Compose copy does not name a demo village. Map ping does not
+fall back to `minor` when severity is missing.
+
+What *may* stay in the UI (Part 38 "what the thing is"): HTTP status codes,
+assurance ordinals 0–5, CAP severity option values, icon sizes, map padding,
+choropleth colour stops for a 0–100% scale.
 
 ---
 
@@ -1166,8 +1308,10 @@ outcome — it's reused for verifying the FCM push payload too.
 
 ### 8.2 ML service hosting
 
-Not yet decided or built. Needs an isolated deployment target that never
-loads inside the API process (§3.1's hard rule).
+Isolated process exists: `python run.py ml` serves `services.ml.server` on
+`:8001`. Weights load only with `SETU_LOAD_ML_MODELS=1`. Production still
+needs a Hugging Face Space (or other host) — the API never imports torch
+and only caches HTTP `/translate` / `/embed` responses.
 
 ### 8.3 Neon / cloud database
 
@@ -1200,12 +1344,15 @@ setu/
 │   ├── crypto/          alert_signing.py (Ed25519 — server side)
 │   └── ml/              (not started — hosting TBD)
 ├── web/
-│   ├── console/         Ops console — Vite + React, dark-first (§7)
-│   │   └── src/         lib/api.ts · components/{AssuranceLadder, QualityGate,
+│   ├── console/         Ops console — Vite + React, dark-first (§7). Dev :5173
+│   │   └── src/         lib/api.ts · components/{LiveMap, AssuranceLadder, QualityGate,
 │   │                    ApprovalPanel, CommandPalette, Kpi, SeverityBadge,
-│   │                    ProvenanceChip} · pages/{Login, LiveOps, AlertDetail}
+│   │                    ProvenanceChip, ReachabilityCard, RiskDial} · pages/{Login, LiveOps,
+│   │                    Composer, AlertDetail, AssistanceQueue, Incident, CommandBoard,
+│   │                    Methodology, Analytics, RelayTasks, Enrollment}
 │   │                    · styles/{tokens, base, layout}.css
-│   └── citizen/         PWA — Vite + React + Workbox (src/sw.ts)
+│   │   └── public/tiles/setu-basemap.pmtiles
+│   └── citizen/         PWA — Vite + React + Workbox (src/sw.ts). Dev :5174
 ├── data/seeds/          01–06 applied locally (06 = app_user roles)
 ├── migrations/          0001–0013 applied locally + Neon (schema)
 ├── tests/               unit/ + property/ + fixtures/ — 76 tests green

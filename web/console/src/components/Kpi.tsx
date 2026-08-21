@@ -60,7 +60,7 @@ export function Kpi({
 }) {
   const shown = useCountUp(value);
   return (
-    <div className="kpi">
+    <div className={`kpi${tone ? ` kpi--${tone}` : ""}`}>
       <span className="kpi__label">{label}</span>
       <span className={`kpi__value mono ${tone ? tone : ""}`}>
         {shown.toLocaleString()}

@@ -4,7 +4,9 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from services.api import config_repo
+from services.api.auth import Principal
 from services.api.deps import get_conn, get_idempotency_key
+from services.api.rbac import assert_delivery_in_scope, require_citizen_write
 from services.api.schemas import CitizenResponseOut, CitizenResponseRequest
 from services.response.citizen_response import ResponseError, submit_response
 
@@ -16,9 +18,11 @@ async def post_response(
     body: CitizenResponseRequest,
     conn: asyncpg.Connection = Depends(get_conn),
     idempotency_key: str | None = Depends(get_idempotency_key),
+    principal: Principal = Depends(require_citizen_write),
 ) -> CitizenResponseOut:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header required")
+    await assert_delivery_in_scope(conn, principal, body.delivery_id)
     if body.free_text is not None:
         max_chars = await config_repo.get_int(conn, "response.free_text_max_chars")
         if len(body.free_text) > max_chars:

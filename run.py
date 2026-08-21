@@ -172,8 +172,10 @@ def check() -> None:
           "--cov-fail-under=95"])
     must([PY, "-m", "pytest", "tests/property", "tests/contract", "tests/integration"])
     must([PY, "scripts/check_no_hardcoding.py"])
+    must([PY, "scripts/check_no_torch.py"])
     must([PY, "scripts/check_env_example.py"])
     must([PY, "scripts/check_channel_capability.py"])
+    must([PY, "scripts/check_pwa_config.py"])
 
 
 @task("Run the test suite")
@@ -204,12 +206,12 @@ def seed_config() -> None:
     must([PY, "scripts/upsert_app_config.py"])
 
 
-@task("Start citizen PWA dev server on :5173")
+@task("Start citizen PWA dev server on :5174")
 def citizen_dev() -> None:
     citizen_dir = ROOT / "web" / "citizen"
     if not (citizen_dir / "node_modules").exists():
         must(["npm", "install"], cwd=citizen_dir)
-    must(["npm", "run", "dev"], cwd=citizen_dir)
+    must(["npm", "run", "dev", "--", "--port", "5174"], cwd=citizen_dir)
 
 
 @task("Re-run geometry loaders against Neon (.env.neon)")
@@ -233,10 +235,84 @@ def import_enrollment() -> None:
     must([PY, "scripts/import_enrollment_csv.py"])
 
 
+@task("Assign demo unit_scope_id by geometry name; optional SETU_DEMO_PASSWORD")
+def provision_demo() -> None:
+    load_env()
+    must([PY, "scripts/provision_demo_accounts.py"])
+
+
+@task("Upsert app_config against .env.neon")
+def neon_seed_config() -> None:
+    neon = ROOT / ".env.neon"
+    if not neon.exists():
+        print("Missing .env.neon — copy Neon URLs there first", file=sys.stderr)
+        sys.exit(1)
+    env = os.environ.copy()
+    env["SETU_ENV_FILE"] = str(neon)
+    must([PY, "scripts/upsert_app_config.py"], env=env)
+
+
+@task("Start isolated ML service on :8001 (torch never loads in the API process)")
+def ml() -> None:
+    load_env()
+    must([PY, "-m", "uvicorn", "services.ml.server:app", "--reload", "--port", "8001"])
+
+
 @task("Verify admin units, config, channels, recipients")
 def verify_data() -> None:
     load_env()
     must([PY, "scripts/verify_data_layer.py"])
+
+
+@task("Write data/snapshots/<date>.json from the local database")
+def snapshot() -> None:
+    load_env()
+    must([PY, "scripts/snapshot.py"])
+
+
+@task("Download a local Protomaps extract (or write the placeholder if extract fails)")
+def fetch_basemap() -> None:
+    must([PY, "scripts/fetch_basemap.py"])
+
+
+@task("THE GATE (Part 19) — load the frozen snapshot and prove it is not empty")
+def demo() -> None:
+    load_env()
+    must([PY, "scripts/guard_local_only.py"])
+    db_up()
+    db_migrate()
+    snapshot_dir = ROOT / "data" / "snapshots"
+    latest = sorted(snapshot_dir.glob("*.json"))
+    if not latest:
+        seed_config()
+        print("  no snapshot yet — seeding a local demo board, then capturing one")
+        must([PY, "scripts/seed_demo_board.py"])
+        must([PY, "scripts/eval_models.py"])
+        must([PY, "scripts/snapshot.py"])
+        latest = sorted(snapshot_dir.glob("*.json"))
+    if not latest:
+        print("FAILED: still no snapshot in data/snapshots", file=sys.stderr)
+        sys.exit(1)
+    must([PY, "scripts/load_snapshot.py", "--latest"])
+    must([PY, "scripts/verify_snapshot.py", "--latest", "--strict"])
+    seed_config()
+    must([PY, "scripts/provision_demo_accounts.py"])
+    print()
+    print("  Snapshot loaded. Console :5173 · Citizen :5174 · API :8000")
+    print("  Citizen/officer login needs SETU_DEMO_PASSWORD then python run.py provision-demo")
+    print("  Isolated ML (optional): python run.py ml")
+    print("  No network calls required from here. Unplug the cable and re-check.")
+    print()
+    procfile = ROOT / "infra" / "Procfile.demo"
+    honcho = shutil.which("honcho")
+    if honcho and procfile.exists():
+        must([honcho, "-f", str(procfile), "start"])
+        return
+    print("  honcho not on PATH. Start in three terminals:")
+    print("    python run.py api")
+    print("    python run.py worker")
+    print("    cd web/console && npm run dev -- --port 5173")
+    print("    cd web/citizen && npm run dev -- --port 5174")
 
 
 # ─────────────────────────────── main ───────────────────────────────

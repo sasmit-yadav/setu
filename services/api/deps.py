@@ -20,12 +20,20 @@ async def get_conn() -> AsyncGenerator[asyncpg.Connection, None]:
         await conn.close()
 
 
+async def close_redis(redis: Redis) -> None:
+    closer = getattr(redis, "aclose", None)
+    if closer is not None:
+        await closer()
+        return
+    await redis.close()
+
+
 async def get_redis() -> AsyncGenerator[Redis, None]:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     try:
         yield redis
     finally:
-        await redis.aclose()
+        await close_redis(redis)
 
 
 def get_idempotency_key(request: Request) -> str | None:

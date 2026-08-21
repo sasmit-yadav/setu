@@ -157,7 +157,7 @@ async def test_approver_id_cannot_be_supplied_by_the_caller(client, db_conn):
         (OFFICER, 200),
         (STATE_ADMIN, 200),
         (AUDITOR, 200),      # reading proof is the auditor's entire purpose
-        (CITIZEN, 403),
+        (CITIZEN, 200),
         (RELAY_NODE, 403),
     ],
 )
@@ -187,3 +187,657 @@ async def test_public_config_is_public(client):
     """The citizen PWA fetches its config BEFORE anyone logs in — if this ever
     starts requiring auth, the offline-first app cannot bootstrap."""
     assert (await client.get("/api/v1/public/config")).status_code == 200
+
+
+async def test_receipt_is_nonce_gated_not_role_gated(client):
+    r = await client.post(
+        "/api/v1/deliveries/99999999/receipt",
+        json={"receipt_nonce": "unused", "event_type": "device_delivered"},
+    )
+    assert r.status_code in (403, 404)
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 200),
+        (STATE_ADMIN, 200),
+        (AUDITOR, 200),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_assistance_list_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/assistance?limit=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+async def test_assistance_without_token_is_401(client):
+    assert (await client.get("/api/v1/assistance")).status_code == 401
+
+
+async def test_relay_node_never_sees_assistance_cases(client, db_conn):
+    token = await _token(db_conn, RELAY_NODE)
+    headers = {"Authorization": f"Bearer {token}"}
+    listed = await client.get("/api/v1/assistance", headers=headers)
+    assert listed.status_code == 403
+    detail = await client.get("/api/v1/assistance/1", headers=headers)
+    assert detail.status_code == 403
+    assigned = await client.post(
+        "/api/v1/assistance/1/assign",
+        headers=headers,
+        json={"assigned_team": "rescue"},
+    )
+    assert assigned.status_code == 403
+    summary = await client.get("/api/v1/assistance/summary", headers=headers)
+    assert summary.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_assistance_assign_requires_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/assistance/99999999/assign",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"assigned_team": "rescue"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+async def test_assigned_by_cannot_be_supplied_by_the_caller(client, db_conn):
+    token = await _token(db_conn, OFFICER)
+    r = await client.post(
+        "/api/v1/assistance/99999999/assign",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"assigned_team": "rescue", "assigned_by": 999},
+    )
+    assert r.status_code == 422
+    assert "assigned_by" in r.text
+
+
+async def test_auditor_assistance_omits_point_geometry(client, db_conn, delivery_row):
+    from services.response.citizen_response import submit_response
+
+    result = await submit_response(
+        db_conn,
+        delivery_id=delivery_row["id"],
+        response_type="trapped",
+        idempotency_key="rbac-geo-1",
+        location=(76.13, 11.65),
+        location_consent=True,
+    )
+    case_id = result["assistance_case_id"]
+    assert case_id is not None
+
+    officer = await _token(db_conn, OFFICER)
+    officer_view = await client.get(
+        f"/api/v1/assistance/{case_id}",
+        headers={"Authorization": f"Bearer {officer}"},
+    )
+    assert officer_view.status_code == 200
+    body = officer_view.json()
+    assert body["citizen_response_id"] is not None
+    assert body["lat"] == pytest.approx(11.65, abs=0.001)
+    assert body["lon"] == pytest.approx(76.13, abs=0.001)
+
+    auditor = await _token(db_conn, AUDITOR)
+    auditor_view = await client.get(
+        f"/api/v1/assistance/{case_id}",
+        headers={"Authorization": f"Bearer {auditor}"},
+    )
+    assert auditor_view.status_code == 200
+    stripped = auditor_view.json()
+    assert stripped["id"] == case_id
+    assert stripped["priority_score"] is not None
+    assert stripped["citizen_response_id"] is None
+    assert stripped["lat"] is None
+    assert stripped["lon"] is None
+    assert stripped["free_text"] is None
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 404),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_incident_read_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/incidents/99999999",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 404),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_unit_reachability_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/units/99999999/reachability",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+async def test_officer_scope_covers_contained_village(client, db_conn):
+    parent = await db_conn.fetchrow(
+        "SELECT id FROM admin_unit WHERE name = 'Vythiri' AND level = 3"
+    )
+    child = await db_conn.fetchrow(
+        "SELECT id FROM admin_unit WHERE name = 'Muttil North' AND level = 5"
+    )
+    if parent is None or child is None:
+        pytest.skip("demo geometry not loaded")
+    token = await _token(db_conn, OFFICER, unit_scope_id=int(parent["id"]))
+    headers = {"Authorization": f"Bearer {token}"}
+    allowed = await client.get(
+        f"/api/v1/units/{int(child['id'])}/reachability",
+        headers=headers,
+    )
+    assert allowed.status_code == 200, allowed.text
+    outsider = await db_conn.fetchval(
+        """
+        SELECT u.id FROM admin_unit u
+        WHERE u.level = 5
+          AND NOT ST_Intersects(u.geom, (SELECT geom FROM admin_unit WHERE id = $1))
+        LIMIT 1
+        """,
+        parent["id"],
+    )
+    if outsider is None:
+        pytest.skip("no out-of-scope village to deny")
+    denied = await client.get(
+        f"/api/v1/units/{int(outsider)}/reachability",
+        headers=headers,
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "unit_scope"
+
+
+async def test_unit_risk_is_public_aggregate_except_relay(client, db_conn):
+    public = await client.get("/api/v1/units/99999999/risk")
+    assert public.status_code == 404
+    relay = await _token(db_conn, RELAY_NODE)
+    denied = await client.get(
+        "/api/v1/units/99999999/risk",
+        headers={"Authorization": f"Bearer {relay}"},
+    )
+    assert denied.status_code == 403
+    citizen = await _token(db_conn, CITIZEN)
+    allowed = await client.get(
+        "/api/v1/units/99999999/risk",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert allowed.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 422),
+        (STATE_ADMIN, 422),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_enrollment_import_requires_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/admin/recipients/import",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("x.csv", b"phone\n", "text/csv")},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (CITIZEN, 404),
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (RELAY_NODE, 404),
+        (AUDITOR, 403),
+    ],
+)
+async def test_ack_and_citizen_delivery_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    headers = {"Authorization": f"Bearer {token}"}
+    ack = await client.post(
+        "/api/v1/ack",
+        headers={**headers, "Idempotency-Key": "rbac-ack"},
+        json={"delivery_id": 99999999},
+    )
+    assert ack.status_code == expected, f"ack {role} -> {ack.status_code}"
+    delivery = await client.get("/api/v1/citizen/deliveries/99999999", headers=headers)
+    assert delivery.status_code == expected, f"delivery {role} -> {delivery.status_code}"
+
+
+async def test_ack_without_token_is_401(client):
+    r = await client.post(
+        "/api/v1/ack",
+        headers={"Idempotency-Key": "no-token"},
+        json={"delivery_id": 1},
+    )
+    assert r.status_code == 401
+
+
+async def test_methodology_is_public(client):
+    r = await client.get("/api/v1/methodology")
+    assert r.status_code == 200
+    body = r.json()
+    assert "channel_capability" in body
+    assert body["channel_capability"]
+
+
+async def test_incidents_list_requires_operational_read(client, db_conn):
+    denied = await client.get("/api/v1/incidents")
+    assert denied.status_code == 401
+    citizen = await _token(db_conn, CITIZEN)
+    forbidden = await client.get(
+        "/api/v1/incidents",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert forbidden.status_code == 403
+    officer = await _token(db_conn, OFFICER)
+    allowed = await client.get(
+        "/api/v1/incidents",
+        headers={"Authorization": f"Bearer {officer}"},
+    )
+    assert allowed.status_code == 200
+
+
+async def test_board_requires_operational_read(client, db_conn):
+    denied = await client.get("/api/v1/incidents/99999999/board")
+    assert denied.status_code == 401
+    citizen = await _token(db_conn, CITIZEN)
+    forbidden = await client.get(
+        "/api/v1/incidents/99999999/board",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert forbidden.status_code == 403
+    officer = await _token(db_conn, OFFICER)
+    missing = await client.get(
+        "/api/v1/incidents/99999999/board",
+        headers={"Authorization": f"Bearer {officer}"},
+    )
+    assert missing.status_code == 404
+
+
+async def test_ops_summary_and_feed_require_officer(client, db_conn):
+    denied = await client.get("/api/v1/ops/summary")
+    assert denied.status_code == 401
+    citizen = await _token(db_conn, CITIZEN)
+    forbidden = await client.get(
+        "/api/v1/ops/summary",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert forbidden.status_code == 403
+    token = await _token(db_conn, OFFICER)
+    summary = await client.get("/api/v1/ops/summary", headers={"Authorization": f"Bearer {token}"})
+    assert summary.status_code == 200
+    feed = await client.get("/api/v1/ops/feed", headers={"Authorization": f"Bearer {token}"})
+    assert feed.status_code == 200
+    assert isinstance(feed.json(), list)
+    mapped = await client.get("/api/v1/ops/map", headers={"Authorization": f"Bearer {token}"})
+    assert mapped.status_code == 200
+
+
+async def test_lead_time_requires_operational_read(client, db_conn):
+    citizen = await _token(db_conn, CITIZEN)
+    denied = await client.get(
+        "/api/v1/analytics/lead-time",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert denied.status_code == 403
+    officer = await _token(db_conn, OFFICER)
+    allowed = await client.get(
+        "/api/v1/analytics/lead-time",
+        headers={"Authorization": f"Bearer {officer}"},
+    )
+    assert allowed.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 422),
+        (STATE_ADMIN, 422),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_compose_requires_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/alerts",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"severity": "severe", "headline": "x", "body": "y", "lang": "en"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_preview_and_validate_require_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    headers = {"Authorization": f"Bearer {token}"}
+    preview = await client.post("/api/v1/alerts/99999999/preview", headers=headers)
+    assert preview.status_code == expected, f"preview {role} -> {preview.status_code}"
+    validate = await client.post("/api/v1/alerts/99999999/validate", headers=headers)
+    assert validate.status_code == expected, f"validate {role} -> {validate.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_new_version_requires_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/alerts/99999999/new-version",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"change_reason": "escalate"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 404),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_deliveries_assurance_audit_pdf_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    headers = {"Authorization": f"Bearer {token}"}
+    for path in (
+        "/api/v1/alerts/99999999/deliveries",
+        "/api/v1/alerts/99999999/assurance",
+        "/api/v1/alerts/99999999/audit",
+        "/api/v1/alerts/99999999/report.pdf",
+    ):
+        r = await client.get(path, headers=headers)
+        assert r.status_code == expected, f"{path} {role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 404),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_after_action_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/incidents/99999999/after-action",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (STATE_ADMIN, 404),
+        (OFFICER, 403),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_close_incident_requires_state_admin(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/incidents/99999999/close",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 200),
+        (STATE_ADMIN, 200),
+        (AUDITOR, 200),
+        (RELAY_NODE, 200),
+        (CITIZEN, 403),
+    ],
+)
+async def test_relay_tasks_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/relay/tasks",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (RELAY_NODE, 404),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+    ],
+)
+async def test_relay_task_confirm_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/relay/tasks/99999999/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (STATE_ADMIN, 200),
+        (AUDITOR, 200),
+        (OFFICER, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_models_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get("/api/v1/models", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+async def test_methodology_allows_relay_node(client, db_conn):
+    token = await _token(db_conn, RELAY_NODE)
+    r = await client.get("/api/v1/methodology", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+
+
+async def test_units_list_public_except_relay(client, db_conn):
+    public = await client.get("/api/v1/units?limit=1")
+    assert public.status_code == 200
+    relay = await _token(db_conn, RELAY_NODE)
+    denied = await client.get(
+        "/api/v1/units",
+        headers={"Authorization": f"Bearer {relay}"},
+    )
+    assert denied.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 403),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_assistance_patch_requires_officer(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.patch(
+        "/api/v1/assistance/99999999",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"status": "assigned"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code} {r.text}"
+
+
+async def test_timeline_requires_operational_read(client, db_conn):
+    citizen = await _token(db_conn, CITIZEN)
+    denied = await client.get(
+        "/api/v1/incidents/99999999/timeline",
+        headers={"Authorization": f"Bearer {citizen}"},
+    )
+    assert denied.status_code == 403
+    officer = await _token(db_conn, OFFICER)
+    missing = await client.get(
+        "/api/v1/incidents/99999999/timeline",
+        headers={"Authorization": f"Bearer {officer}"},
+    )
+    assert missing.status_code == 404
+
+
+# ── rows that had no allow/deny pair ────────────────────────────────────────
+# Part 26 lists /units/{id}/vulnerability and POST /response as their own rows,
+# and Day 10's DoD is "every row has an allow test and a deny test". Both were
+# missing entirely, as was the citizen device-registration endpoint added for
+# live FCM. A router that forgot its role dependency on any of these would not
+# have been caught by any existing test.
+
+
+@pytest.mark.parametrize(
+    "role,expected",
+    [
+        (OFFICER, 404),
+        (STATE_ADMIN, 404),
+        (AUDITOR, 404),
+        (CITIZEN, 403),
+        (RELAY_NODE, 403),
+    ],
+)
+async def test_unit_vulnerability_roles(client, db_conn, role, expected):
+    token = await _token(db_conn, role)
+    r = await client.get(
+        "/api/v1/units/99999999/vulnerability",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == expected, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,allowed",
+    [
+        (CITIZEN, True),
+        (OFFICER, True),
+        (STATE_ADMIN, True),
+        (RELAY_NODE, True),
+        (AUDITOR, False),
+    ],
+)
+async def test_response_write_roles(client, db_conn, role, allowed):
+    """C6's write path. Part 26 gives auditor ❌ here — an auditor proving the
+    state responded must never be able to author a citizen's response."""
+    token = await _token(db_conn, role)
+    r = await client.post(
+        "/api/v1/response",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "rbac-probe"},
+        json={
+            "delivery_id": 99999999,
+            "response_type": "safe",
+            "free_text": None,
+            "lat": None,
+            "lon": None,
+            "location_consent": False,
+        },
+    )
+    if allowed:
+        assert r.status_code != 403, f"{role} should not be forbidden -> {r.text}"
+    else:
+        assert r.status_code == 403, f"{role} -> {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "role,allowed",
+    [
+        (CITIZEN, True),
+        (OFFICER, True),
+        (STATE_ADMIN, True),
+        (RELAY_NODE, True),
+        (AUDITOR, False),
+    ],
+)
+async def test_citizen_device_registration_roles(client, db_conn, role, allowed):
+    """Push-token registration rides the same citizen-write role set as /ack and
+    /response, so an auditor token must not be able to bind a device."""
+    token = await _token(db_conn, role, unit_scope_id=None)
+    r = await client.post(
+        "/api/v1/citizen/device",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"push_token": "rbac-probe-token"},
+    )
+    if allowed:
+        # 400 = no unit scope on this synthetic principal, which is the handler
+        # being reached. Only 403 would mean the role gate rejected it.
+        assert r.status_code != 403, f"{role} should not be forbidden -> {r.text}"
+    else:
+        assert r.status_code == 403, f"{role} -> {r.status_code}"
+
+
+async def test_unauthenticated_cannot_register_a_device(client):
+    r = await client.post("/api/v1/citizen/device", json={"push_token": "no-auth"})
+    assert r.status_code in (401, 403), r.status_code

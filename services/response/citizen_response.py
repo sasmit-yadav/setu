@@ -11,9 +11,6 @@ from services.delivery.assurance import record
 from services.response.assistance_queue import create_case
 from services.response.priority import compute_priority
 
-RESPONSE_TYPES = frozenset({"safe", "trapped", "medical", "unable_to_evacuate", "other"})
-ASSISTANCE_TYPES = frozenset({"trapped", "medical", "unable_to_evacuate", "other"})
-
 
 class ResponseError(Exception):
     def __init__(self, code: str, message: str) -> None:
@@ -78,10 +75,14 @@ async def submit_response(
     location_consent: bool = False,
     submitted_at: datetime | None = None,
 ) -> dict[str, Any]:
-    if response_type not in RESPONSE_TYPES:
+    help_types = set(await config_repo.get_csv(conn, "response.help_types"))
+    safe_type = await config_repo.get_str(conn, "response.safe_type")
+    free_text_types = set(await config_repo.get_csv(conn, "response.free_text_types"))
+    allowed = help_types | {safe_type}
+    if response_type not in allowed:
         raise ResponseError("invalid_response_type", f"Unknown response type {response_type}")
-    if response_type == "other" and not free_text:
-        raise ResponseError("free_text_required", "free_text is required for response type other")
+    if response_type in free_text_types and not free_text:
+        raise ResponseError("free_text_required", "free_text is required for this response type")
     if location is not None and not location_consent:
         raise ResponseError("location_consent_required", "location_consent must be true when location is set")
 
@@ -169,7 +170,7 @@ async def submit_response(
     )
 
     case_id = None
-    if response_type in ASSISTANCE_TYPES:
+    if response_type in help_types:
         wait_minutes = max(
             (received_at - submitted).total_seconds()
             / await config_repo.get_float(conn, "time.seconds_per_minute"),
@@ -217,7 +218,7 @@ async def record_from_dtmf(
     evac_digit = await config_repo.get_str(conn, "ivr.dtmf.unable_to_evacuate")
     token = digits.strip()
     if token == safe_digit:
-        response_type = "safe"
+        response_type = await config_repo.get_str(conn, "response.safe_type")
     elif token == trapped_digit:
         response_type = "trapped"
     elif token == medical_digit:
@@ -227,7 +228,10 @@ async def record_from_dtmf(
     elif token == need_help_digit:
         return None
     else:
-        response_type = "other"
+        free_text_types = await config_repo.get_csv(conn, "response.free_text_types")
+        if not free_text_types:
+            return None
+        response_type = free_text_types[0]
     key = f"dtmf-{delivery_id}-{token}"
     return await submit_response(
         conn,

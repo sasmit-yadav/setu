@@ -119,3 +119,42 @@ async def parse_gdacs(
         etag=raw.etag,
         geometry_wkt=geometry_wkt,
     )
+
+
+async def parse_thunderstorm(conn: asyncpg.Connection, raw: RawAlert) -> ParsedAlert:
+    payload = json.loads(raw.body)
+    hour = datetime.fromisoformat(str(payload["hour"]).replace("Z", "+00:00"))
+    if hour.tzinfo is None:
+        hour = hour.replace(tzinfo=UTC)
+    risk = float(payload["risk"])
+    extreme_floor = await config_repo.get_float(conn, "thunderstorm.severity.extreme")
+    severe_floor = await config_repo.get_float(conn, "thunderstorm.severity.severe")
+    moderate_floor = await config_repo.get_float(conn, "thunderstorm.severity.moderate")
+    if risk >= extreme_floor:
+        severity = "extreme"
+    elif risk >= severe_floor:
+        severity = "severe"
+    elif risk >= moderate_floor:
+        severity = "moderate"
+    else:
+        severity = "minor"
+    unit_name = str(payload.get("unit_name") or "district")
+    return ParsedAlert(
+        external_id=f"{payload['unit_id']}:{payload['hour']}",
+        source_id="thunderstorm_nowcast",
+        severity=severity,
+        headline=f"Thunderstorm nowcast — {unit_name}",
+        body=(
+            f"Open-Meteo convective risk {risk:.2f} for {unit_name}. "
+            "Threshold model on live CAPE/Lifted-Index/CIN — not an official IMD warning. "
+            "Human approval required (source is not authoritative)."
+        ),
+        lang="en",
+        lon=float(payload["lon"]),
+        lat=float(payload["lat"]),
+        effective_at=hour,
+        expires_at=await _default_expires(conn, hour),
+        estimated_onset_at=hour,
+        raw_checksum=raw.checksum,
+        etag=raw.etag,
+    )

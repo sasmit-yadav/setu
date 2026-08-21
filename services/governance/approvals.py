@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncpg
 
 from services.api import config_repo
+from services.audit.ledger import append_audit
 
 
 class ApprovalError(Exception):
@@ -68,6 +69,18 @@ async def record_auto_approval(conn: asyncpg.Connection, alert_id: int) -> None:
         """,
         alert_id,
     )
+    # Rule 12's machine-origin path still has to be VISIBLE in the ledger. An
+    # auto-approval that leaves no audit row is indistinguishable from no
+    # approval at all when the timeline is read back (Part 16 Day 6 requires
+    # alert.approved in the timeline), and "the seismograph was the second pair
+    # of eyes" is only defensible if the ledger says so.
+    await append_audit(
+        conn,
+        alert_id=alert_id,
+        event_type="alert.approved",
+        payload={"provenance": "authoritative_source", "approver_id": None},
+        actor="system:authoritative_source",
+    )
 
 
 async def approve(
@@ -76,18 +89,40 @@ async def approve(
     approver_id: int,
     *,
     reason: str | None = None,
+    actor: str | None = None,
 ) -> int:
-    await conn.execute(
+    inserted = await conn.fetchval(
         """
         INSERT INTO alert_approval (alert_id, approver_id, provenance, decision, reason)
         VALUES ($1, $2, 'human', 'approved', $3)
         ON CONFLICT (alert_id, approver_id) DO NOTHING
+        RETURNING id
         """,
         alert_id,
         approver_id,
         reason,
     )
-    return await approval_count(conn, alert_id)
+    have = await approval_count(conn, alert_id)
+    # Audit only a NEW approval. The ON CONFLICT above makes a repeated approval
+    # by the same officer a no-op (F3's whole guarantee — one human cannot
+    # self-quorum); writing an audit row anyway would make the ledger imply two
+    # distinct approvals where the table correctly records one.
+    if inserted is not None:
+        need_severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
+        await append_audit(
+            conn,
+            alert_id=alert_id,
+            event_type="alert.approved",
+            payload={
+                "provenance": "human",
+                "approver_id": approver_id,
+                "have": have,
+                "need": await required_count(conn, need_severity) if need_severity else None,
+                "reason": reason,
+            },
+            actor=actor or f"user:{approver_id}",
+        )
+    return have
 
 
 async def ensure_dispatch_allowed(conn: asyncpg.Connection, alert_id: int) -> None:

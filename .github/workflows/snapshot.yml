@@ -1,0 +1,26 @@
+name: snapshot
+
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  freeze-fixtures:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DATABASE_URL_DIRECT != '' }}
+    env:
+      DATABASE_URL_DIRECT: ${{ secrets.DATABASE_URL_DIRECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/snapshot.py --out data/snapshots/nightly.json
+      - run: python scripts/verify_snapshot.py --path data/snapshots/nightly.json --strict
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setu-nightly-snapshot
+          path: data/snapshots/nightly.json

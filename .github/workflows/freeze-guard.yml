@@ -1,0 +1,69 @@
+name: freeze-guard
+
+on: [push, pull_request]
+
+jobs:
+  check-freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Block non-hotfix changes after freeze
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+        run: |
+          FREEZE_EPOCH=$(date -d "2026-08-21T21:00:00+05:30" +%s)
+          NOW_EPOCH=$(date +%s)
+          if [ "$NOW_EPOCH" -le "$FREEZE_EPOCH" ]; then
+            echo "Freeze not yet in effect."
+            exit 0
+          fi
+          if ! echo "$COMMIT_MSG" | grep -qi "\[hotfix-approved\]"; then
+            echo "::error::Feature freeze is in effect (21 Aug 21:00 IST). Commits after freeze require [hotfix-approved] in the message, added only after two teammates agree in the team channel."
+            exit 1
+          fi
+
+      - name: Guarded paths must not change post-freeze
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+        run: |
+          FREEZE_EPOCH=$(date -d "2026-08-21T21:00:00+05:30" +%s)
+          NOW_EPOCH=$(date +%s)
+          if [ "$NOW_EPOCH" -le "$FREEZE_EPOCH" ]; then
+            echo "Freeze not yet in effect."
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base SHA to diff against."
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}")
+          GUARDED="services/delivery services/targeting services/governance \
+                   services/response services/enrollment services/crypto \
+                   web/citizen/src/relay.ts web/citizen/src/verify.ts \
+                   web/console/src/pages/CommandBoard.tsx \
+                   web/console/src/components/AssuranceLadder.tsx \
+                   data/seeds migrations"
+          HIT=0
+          for path in $CHANGED; do
+            for prefix in $GUARDED; do
+              case "$path" in
+                "$prefix"|"$prefix"/*)
+                  echo "Guarded path changed: $path"
+                  HIT=1
+                  ;;
+              esac
+            done
+          done
+          if [ "$HIT" -eq 1 ]; then
+            if ! echo "$COMMIT_MSG" | grep -qi "\[hotfix-approved\]"; then
+              echo "::error::Guarded path changed after freeze without [hotfix-approved]."
+              exit 1
+            fi
+          fi

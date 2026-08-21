@@ -16,8 +16,8 @@ export default defineConfig({
         name: "SETU Citizen",
         short_name: "SETU",
         description: "Disaster alerts — acknowledge and respond",
-        theme_color: "#0f172a",
-        background_color: "#0f172a",
+        theme_color: "#f3f2f1",
+        background_color: "#f3f2f1",
         display: "standalone",
         start_url: "/",
         icons: [
@@ -31,7 +31,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5173,
+    port: 5174,
     proxy: {
       "/api": "http://localhost:8000",
     },

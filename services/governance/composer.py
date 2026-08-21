@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -13,6 +13,7 @@ from services.api.settings import settings
 from services.audit.ledger import append_audit
 from services.crypto.alert_signing import sign_payload
 from services.ingestion.incident_linker import link_to_incident
+from services.ml.translate import ensure_translations
 
 
 class ComposeError(Exception):
@@ -39,11 +40,7 @@ async def create_draft_alert(
     actor: str = "officer",
 ) -> dict[str, Any]:
     effective = effective_at or datetime.now(UTC)
-    if expires_at is None:
-        ttl_hours = await config_repo.get_float(conn, "ingest.alert_default_ttl_hours")
-        expires = effective + timedelta(hours=ttl_hours)
-    else:
-        expires = expires_at
+    expires = expires_at
 
     external_id = f"manual-{uuid.uuid4()}"
     checksum = hashlib.sha256(f"{headline}|{body}|{external_id}".encode()).hexdigest()
@@ -163,6 +160,7 @@ async def create_draft_alert(
         payload={"severity": severity, "source_id": "manual"},
         actor=actor,
     )
+    await ensure_translations(conn, int(alert_id))
     target_count = await conn.fetchval(
         """
         SELECT COUNT(DISTINCT r.id)
@@ -209,3 +207,48 @@ async def preview_exposure(conn: asyncpg.Connection, alert_id: int) -> dict[str,
             for row in rows
         ],
     }
+
+
+async def patch_draft_alert(
+    conn: asyncpg.Connection,
+    alert_id: int,
+    *,
+    expires_at: datetime | None = None,
+    headline: str | None = None,
+    body: str | None = None,
+    severity: str | None = None,
+    actor: str = "officer",
+) -> dict[str, Any]:
+    current = await conn.fetchrow(
+        "SELECT id, lifecycle_status, incident_id FROM alert WHERE id = $1",
+        alert_id,
+    )
+    if current is None:
+        raise ComposeError("alert_not_found", "Alert not found")
+    if current["lifecycle_status"] != "draft":
+        raise ComposeError("not_draft", "Only draft alerts can be edited")
+    await conn.execute(
+        """
+        UPDATE alert
+        SET expires_at = COALESCE($2, expires_at),
+            headline = COALESCE($3, headline),
+            body = COALESCE($4, body),
+            severity = COALESCE($5, severity)
+        WHERE id = $1
+        """,
+        alert_id,
+        expires_at,
+        headline,
+        body,
+        severity,
+    )
+    await append_audit(
+        conn,
+        alert_id=alert_id,
+        incident_id=current["incident_id"],
+        event_type="alert.patched",
+        payload={"expires_at": expires_at.isoformat() if expires_at else None},
+        actor=actor,
+    )
+    await ensure_translations(conn, int(alert_id))
+    return await preview_exposure(conn, alert_id)

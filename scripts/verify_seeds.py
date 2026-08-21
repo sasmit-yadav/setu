@@ -59,13 +59,35 @@ async def main() -> int:
     if unreasoned:
         failures.append("channel_capability_tier missing reasons")
 
-    # Every app_config row must have a non-empty note where the value is a
-    # tunable (Rule 1's whole point: a threshold with no explanation is
-    # theatre). Config-exempt rows use '' deliberately (severity.rank.severe
-    # etc. are self-explanatory) — so this reports, doesn't fail, unless ALL are empty.
-    empty_notes = await scalar(conn, "SELECT COUNT(*) FROM app_config WHERE note = ''")
+    # Every app_config row must have a non-empty note (Rule 1's whole point: a
+    # threshold with no explanation is theatre, and Part 16's Day-4 DoD says
+    # "every row has a non-empty note"). This used to only print INFO, with a
+    # comment claiming severity.rank.* were deliberately exempt — but
+    # severity.rank.extreme carried a note while its three siblings did not,
+    # which is drift, not a policy. They now all have one, so this FAILS.
+    empty_notes = await scalar(
+        conn, "SELECT COUNT(*) FROM app_config WHERE note IS NULL OR trim(note) = ''"
+    )
     total_config = await scalar(conn, "SELECT COUNT(*) FROM app_config")
-    print(f"  INFO app_config rows with an empty note: {empty_notes}/{total_config}")
+    print(
+        f"  {'OK ' if empty_notes == 0 else 'FAIL'} app_config rows with an empty note: "
+        f"{empty_notes}/{total_config} (need 0)"
+    )
+    if empty_notes:
+        failures.append("app_config rows with an empty note")
+
+    # Part 16's Day-4 exit gate is "Zero alerts with a NULL incident_id".
+    # Migration 0007 backfills it, but the column is nullable and nothing
+    # re-checks it, so any alert inserted outside the composer path silently
+    # breaks F2's version chain. Verified here because it is an invariant, not
+    # a one-time migration step.
+    orphan_alerts = await scalar(conn, "SELECT COUNT(*) FROM alert WHERE incident_id IS NULL")
+    print(
+        f"  {'OK ' if orphan_alerts == 0 else 'FAIL'} alerts with a NULL incident_id: "
+        f"{orphan_alerts} (need 0)"
+    )
+    if orphan_alerts:
+        failures.append("alerts with a NULL incident_id")
 
     await conn.close()
 

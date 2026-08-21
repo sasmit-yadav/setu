@@ -10,7 +10,7 @@ Citizen enrollment is a separate, consent-gated flow (E4) that creates
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field
 
 from services.api.auth import (
@@ -114,12 +114,10 @@ async def refresh(
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(body: RefreshRequest, conn=Depends(get_conn)) -> None:
-    # Idempotent by design: logging out an already-revoked token is a no-op,
-    # not an error. A client that cannot successfully log out would be a worse
-    # outcome than a redundant revoke.
+@router.post("/logout")
+async def logout(body: RefreshRequest, conn=Depends(get_conn)) -> Response:
     await revoke_refresh_token(conn, body.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=MeResponse)

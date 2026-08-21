@@ -54,5 +54,17 @@ async def incident_detail(conn: asyncpg.Connection, incident_id: int) -> dict[st
         "status": incident["status"],
         "origin_source": incident["origin_source"],
         "opened_at": incident["opened_at"].isoformat(),
-        "versions": [dict(v) for v in versions],
+        "versions": [
+            {
+                "id": row["id"],
+                "version_number": row["version_number"],
+                "severity": row["severity"],
+                "lifecycle_status": row["lifecycle_status"],
+                "change_reason": row["change_reason"],
+                "supersedes_alert_id": row["supersedes_alert_id"],
+                "effective_at": row["effective_at"].isoformat() if row["effective_at"] else None,
+                "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+            }
+            for row in versions
+        ],
     }

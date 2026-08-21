@@ -6,8 +6,7 @@
  */
 
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
-import { ApiError, endpoints, setToken } from "../lib/api";
+import { ApiError, endpoints } from "../lib/api";
 
 export function Login({ onAuthed }: { onAuthed: () => void }) {
   const [email, setEmail] = useState("");
@@ -20,8 +19,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await endpoints.login(email, password);
-      setToken(res.access_token);
+      await endpoints.login(email, password);
       onAuthed();
     } catch (err) {
       // The API returns one uniform 401 for every credential failure, on
@@ -43,10 +41,11 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
     <main className="login">
       <form className="login__panel panel panel--raised" onSubmit={submit}>
         <div className="login__brand">
-          <ShieldCheck size={20} aria-hidden />
+          <span className="topbar__mark" aria-hidden />
+          <p className="screen__kicker">Authorized access</p>
           <h1>SETU</h1>
-          <span className="muted">Operations Console</span>
         </div>
+        <p className="muted">Operations console</p>
 
         <label className="field">
           <span>Email</span>

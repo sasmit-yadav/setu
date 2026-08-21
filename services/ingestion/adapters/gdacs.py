@@ -57,6 +57,8 @@ class GdacsAdapter:
                         modified_dt = modified_dt.replace(tzinfo=UTC)
                     if modified_dt < since.astimezone(UTC):
                         continue
+                if str(props.get("iscurrent")).lower() != "true":
+                    continue
                 if self._in_india(feature):
                     yield self.make_identifier(props)
 

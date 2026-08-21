@@ -6,9 +6,17 @@ from services.api import config_repo
 from services.audit.ledger import append_audit
 from services.ingestion.incident_linker import link_to_incident
 from services.ingestion.types import ParsedAlert
+from services.ml.dedup import assign_cluster, next_cluster_id
+from services.ml.reach_risk import predict_for_alert
+from services.ml.translate import ensure_translations
 
 
 async def upsert_alert(conn: asyncpg.Connection, parsed: ParsedAlert) -> int:
+    cluster_id = parsed.cluster_id
+    if cluster_id is None:
+        cluster_id = await assign_cluster(conn, parsed)
+        if cluster_id is None:
+            cluster_id = await next_cluster_id(conn)
     radius_m = None
     if parsed.geometry_wkt is None:
         radius_km = await config_repo.get_float(conn, f"ingest.{parsed.source_id}.alert_radius_km")
@@ -57,13 +65,13 @@ async def upsert_alert(conn: asyncpg.Connection, parsed: ParsedAlert) -> int:
         parsed.expires_at,
         parsed.raw_checksum,
         parsed.etag,
-        parsed.cluster_id,
+        cluster_id,
         parsed.estimated_onset_at,
     )
     incident_id = await link_to_incident(
         conn,
         int(alert_id),
-        cluster_id=parsed.cluster_id,
+        cluster_id=cluster_id,
         actor="ingestion",
     )
     await append_audit(
@@ -74,4 +82,6 @@ async def upsert_alert(conn: asyncpg.Connection, parsed: ParsedAlert) -> int:
         payload={"source_id": parsed.source_id, "external_id": parsed.external_id},
         actor="ingestion",
     )
+    await predict_for_alert(conn, int(alert_id))
+    await ensure_translations(conn, int(alert_id))
     return int(alert_id)

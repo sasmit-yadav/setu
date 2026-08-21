@@ -98,8 +98,68 @@ async def test_resolution_is_per_recipient_not_per_alert(db_conn, delivery_row):
     assert resolved[reachable][0] != resolved[unreachable][0]
 
 
-async def test_empty_recipient_list_is_not_an_error(db_conn, delivery_row):
-    assert await resolve_channels_for_recipients(db_conn, delivery_row["alert_id"], []) == {}
+async def test_high_reach_risk_skips_to_resilient_channel(db_conn, delivery_row):
+    from services.ml.reach_risk import ensure_bootstrap_model
+
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    unit_id = await db_conn.fetchval("SELECT unit_id FROM recipient WHERE id = $1", recipient_id)
+    await db_conn.execute("UPDATE alert SET severity = 'extreme' WHERE id = $1", alert_id)
+    await db_conn.execute(
+        "UPDATE recipient SET phone_enc = '\\x00'::bytea, push_token = $2 WHERE id = $1",
+        recipient_id,
+        "unused-token",
+    )
+    model_id = await ensure_bootstrap_model(db_conn)
+    high_risk = await db_conn.fetchval(
+        "SELECT applies_if_reach_risk_gte FROM escalation_policy WHERE applies_if_reach_risk_gte IS NOT NULL LIMIT 1"
+    )
+    assert high_risk is not None
+    await db_conn.execute(
+        """
+        INSERT INTO reach_prediction (alert_id, unit_id, risk_score, model_id, features)
+        VALUES ($1, $2, $3, $4, '{}'::jsonb)
+        ON CONFLICT (alert_id, unit_id) DO UPDATE SET risk_score = EXCLUDED.risk_score
+        """,
+        alert_id,
+        unit_id,
+        float(high_risk),
+        model_id,
+    )
+    resolved = await resolve_channels_for_recipients(db_conn, alert_id, [recipient_id])
+    channel_id, simulated = resolved[recipient_id]
+    assert simulated is False
+    assert await _channel_code(db_conn, channel_id) == "sms"
+
+
+async def test_low_reach_risk_keeps_primary_push_channel(db_conn, delivery_row):
+    from services.ml.reach_risk import ensure_bootstrap_model
+
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    unit_id = await db_conn.fetchval("SELECT unit_id FROM recipient WHERE id = $1", recipient_id)
+    await db_conn.execute("UPDATE alert SET severity = 'extreme' WHERE id = $1", alert_id)
+    await db_conn.execute(
+        "UPDATE recipient SET push_token = $2 WHERE id = $1",
+        recipient_id,
+        "real-token",
+    )
+    model_id = await ensure_bootstrap_model(db_conn)
+    await db_conn.execute(
+        """
+        INSERT INTO reach_prediction (alert_id, unit_id, risk_score, model_id, features)
+        VALUES ($1, $2, $3, $4, '{}'::jsonb)
+        ON CONFLICT (alert_id, unit_id) DO UPDATE SET risk_score = EXCLUDED.risk_score
+        """,
+        alert_id,
+        unit_id,
+        0.0,
+        model_id,
+    )
+    resolved = await resolve_channels_for_recipients(db_conn, alert_id, [recipient_id])
+    channel_id, simulated = resolved[recipient_id]
+    assert simulated is False
+    assert await _channel_code(db_conn, channel_id) == "fcm"
 
 
 @pytest.mark.parametrize("channel_code", sorted(CHANNEL_ADDRESS_COLUMN))

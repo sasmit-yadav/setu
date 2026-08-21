@@ -7,9 +7,11 @@ from redis.asyncio import Redis
 
 from services.api.deps import get_conn, get_redis
 from services.delivery.assurance import record
+from services.delivery.channels.human_relay import confirm_relay_from_dtmf
 from services.delivery.lookup import by_provider_ref
 from services.delivery.webhook_verify import verify_twilio_form
 from services.enrollment.sms_keyword import SmsKeywordError, handle_inbound
+from services.ml.translate import lang_for_unit, resolve_alert_text
 from services.response.citizen_response import record_from_dtmf
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
@@ -90,6 +92,7 @@ async def ivr_status(request: Request, conn=Depends(get_conn)) -> Response:
         )
     if digits:
         await record_from_dtmf(conn, delivery_id, digits)
+        await confirm_relay_from_dtmf(conn, delivery_id, digits)
     return Response(status_code=204)
 
 
@@ -97,22 +100,40 @@ async def _build_ivr_twiml(
     delivery_id: int,
     action: str,
     conn,
+    mode: str = "",
 ) -> Response:
     from services.api import config_repo
 
-    safe = await config_repo.get_str(conn, "ivr.dtmf.safe")
-    need_help = await config_repo.get_str(conn, "ivr.dtmf.need_help")
-    prompt_template = await config_repo.get_str(conn, "ivr.prompt.main")
-    # Rule 1 / Part 38 violation E: numDigits and timeout are UX decisions
-    # about a stressed human on a phone during a disaster. They are seeded in
-    # app_config (ivr.gather_digits / ivr.gather_timeout_s) precisely so they
-    # can be tuned after hearing a real call, without a redeploy. They were
-    # previously hardcoded as function defaults here, which silently ignored
-    # those rows — and check_no_hardcoding.py could not see it, because
-    # services/api/ is not in GUARDED_DIRS.
+    if mode == "relay":
+        prompt = await config_repo.get_str(conn, "relay.prompt.confirm")
+        unit_id = await conn.fetchval(
+            """
+            SELECT r.unit_id FROM delivery d
+            JOIN recipient r ON r.id = d.recipient_id
+            WHERE d.id = $1
+            """,
+            delivery_id,
+        )
+        lang = await lang_for_unit(conn, int(unit_id)) if unit_id is not None else None
+    else:
+        safe = await config_repo.get_str(conn, "ivr.dtmf.safe")
+        need_help = await config_repo.get_str(conn, "ivr.dtmf.need_help")
+        prompt_template = await config_repo.get_str(conn, "ivr.prompt.main")
+        prompt = prompt_template.format(safe=safe, need_help=need_help)
+        lang = await conn.fetchval(
+            """
+            SELECT r.preferred_lang FROM delivery d
+            JOIN recipient r ON r.id = d.recipient_id
+            WHERE d.id = $1
+            """,
+            delivery_id,
+        )
+    alert_id = await conn.fetchval("SELECT alert_id FROM delivery WHERE id = $1", delivery_id)
+    if alert_id is not None:
+        resolved = await resolve_alert_text(conn, int(alert_id), str(lang) if lang else None)
+        prompt = f"{resolved.headline}. {resolved.body}. {prompt}"
     gather_digits = await config_repo.get_int(conn, "ivr.gather_digits")
     gather_timeout = await config_repo.get_int(conn, "ivr.gather_timeout_s")
-    prompt = prompt_template.format(safe=safe, need_help=need_help)
     callback = action or ""
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -132,15 +153,17 @@ async def _build_ivr_twiml(
 async def ivr_twiml_get(
     delivery_id: int,
     action: str = "",
+    mode: str = "",
     conn=Depends(get_conn),
 ) -> Response:
-    return await _build_ivr_twiml(delivery_id, action, conn)
+    return await _build_ivr_twiml(delivery_id, action, conn, mode=mode)
 
 
 @router.post("/ivr-twiml", operation_id="ivr_twiml_post")
 async def ivr_twiml_post(
     delivery_id: int,
     action: str = "",
+    mode: str = "",
     conn=Depends(get_conn),
 ) -> Response:
-    return await _build_ivr_twiml(delivery_id, action, conn)
+    return await _build_ivr_twiml(delivery_id, action, conn, mode=mode)

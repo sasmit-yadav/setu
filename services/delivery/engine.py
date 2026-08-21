@@ -21,6 +21,7 @@ from services.governance.versioning import (
     release_supersede_lock,
     supersede_predecessor,
 )
+from services.ml.reach_risk import predict_for_alert
 from services.targeting.escalation import resolve_channels_for_recipients
 from services.targeting.geo import recipients_in_area
 
@@ -79,35 +80,53 @@ async def dispatch_alert(conn: asyncpg.Connection, redis: Redis, alert_id: int, 
         if not locked:
             raise VersionInFlightError()
     try:
-        async with conn.transaction():
-            await ensure_dispatch_allowed(conn, alert_id)
-            results = await validate(conn, alert_id)
-            await persist_results(conn, alert_id, results)
-            if has_blocking_failure(results):
-                failures = [
-                    {"rule_id": r.rule_id, "message": r.message}
-                    for r in results
-                    if r.status == "fail"
-                ]
-                raise QualityGateBlocked(failures)
-            await supersede_predecessor(conn, alert_id, actor=actor)
-            recipient_ids = await recipients_in_area(conn, alert_id)
-            if not recipient_ids:
-                raise DispatchError("no_recipients", "No consented recipients intersect the alert area")
-            await create_deliveries(conn, alert_id, recipient_ids)
-            await enqueue_fanout(redis, conn, alert_id, recipient_ids)
-            await conn.execute(
-                "UPDATE alert SET lifecycle_status = 'active' WHERE id = $1",
-                alert_id,
-            )
+        try:
+            async with conn.transaction():
+                await ensure_dispatch_allowed(conn, alert_id)
+                await predict_for_alert(conn, alert_id)
+                results = await validate(conn, alert_id)
+                await persist_results(conn, alert_id, results)
+                if has_blocking_failure(results):
+                    failures = [
+                        {"rule_id": r.rule_id, "message": r.message}
+                        for r in results
+                        if r.status == "fail"
+                    ]
+                    raise QualityGateBlocked(failures)
+                await supersede_predecessor(conn, alert_id, actor=actor)
+                recipient_ids = await recipients_in_area(conn, alert_id)
+                if not recipient_ids:
+                    raise DispatchError(
+                        "no_recipients", "No consented recipients intersect the alert area"
+                    )
+                await create_deliveries(conn, alert_id, recipient_ids)
+                await enqueue_fanout(redis, conn, alert_id, recipient_ids)
+                await conn.execute(
+                    "UPDATE alert SET lifecycle_status = 'active' WHERE id = $1",
+                    alert_id,
+                )
+                await append_audit(
+                    conn,
+                    alert_id=alert_id,
+                    event_type="alert.dispatched",
+                    payload={"recipient_count": len(recipient_ids)},
+                    actor=actor,
+                )
+                return {"alert_id": alert_id, "recipient_count": len(recipient_ids)}
+        except QualityGateBlocked as blocked:
+            # Audited OUTSIDE the transaction on purpose: the raise rolls the
+            # transaction back, so an append_audit() before it would vanish
+            # along with the dispatch. A blocked dispatch is exactly the event
+            # the timeline must show (Part 16 Day 6 names alert.validation_failed
+            # as a required timeline entry), so it is recorded after the rollback.
             await append_audit(
                 conn,
                 alert_id=alert_id,
-                event_type="alert.dispatched",
-                payload={"recipient_count": len(recipient_ids)},
+                event_type="alert.validation_failed",
+                payload={"failures": blocked.failures},
                 actor=actor,
             )
-            return {"alert_id": alert_id, "recipient_count": len(recipient_ids)}
+            raise
     finally:
         if locked and incident_id is not None:
             await release_supersede_lock(redis, int(incident_id))

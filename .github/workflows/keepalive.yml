@@ -1,0 +1,30 @@
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API
+        env:
+          API_URL: ${{ secrets.API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "API_URL secret not set; skipping."
+            exit 0
+          fi
+          curl -sf "$API_URL/health" || exit 1
+
+      - name: Ping HF Space
+        env:
+          HF_SPACE_URL: ${{ secrets.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_SPACE_URL" ]; then
+            echo "HF_SPACE_URL secret not set; skipping."
+            exit 0
+          fi
+          curl -sf "$HF_SPACE_URL/health" || exit 1

@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import asyncpg
-import firebase_admin
-from firebase_admin import credentials, messaging
 
 from services.api.settings import settings
 from services.delivery.assurance import record
@@ -19,18 +17,31 @@ from services.delivery.channels.base import (
 )
 
 _app_initialized = False
+_messaging: Any = None
 
 
-def _ensure_firebase() -> None:
-    global _app_initialized
-    if _app_initialized:
-        return
+def _load_firebase():
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+    except ImportError as exc:
+        raise ChannelUnavailable("fcm_not_configured") from exc
+    return firebase_admin, credentials, messaging
+
+
+def _ensure_firebase() -> Any:
+    global _app_initialized, _messaging
+    if _app_initialized and _messaging is not None:
+        return _messaging
+    firebase_admin, credentials, messaging = _load_firebase()
     path = settings.fcm_service_account_json
     if not path or not os.path.isfile(path):
         raise ChannelUnavailable("fcm_not_configured")
     cred = credentials.Certificate(path)
     firebase_admin.initialize_app(cred)
     _app_initialized = True
+    _messaging = messaging
+    return messaging
 
 
 class FcmAdapter:
@@ -45,20 +56,26 @@ class FcmAdapter:
         self._config = config or {}
 
     async def send(self, msg: OutboundMessage) -> SendResult:
-        _ensure_firebase()
+        messaging = _ensure_firebase()
         data = {
             "alert_id": str(msg.alert_id),
             "delivery_id": str(msg.delivery_id),
             "ack_url": msg.ack_url,
+            "headline": msg.headline,
+            "body": msg.body,
         }
         if msg.receipt_nonce:
             data["receipt_nonce"] = msg.receipt_nonce
         if msg.signature:
             data["signature"] = msg.signature
+        # Data-only webpush: a `notification` block is delivered straight to the
+        # browser's own notification tray, bypassing our service worker's `push`
+        # handler entirely — which is where the receipt_nonce round-trip lives
+        # (sw.ts). Web push must stay data-only or device_delivered never fires.
         message = messaging.Message(
-            notification=messaging.Notification(title=msg.headline, body=msg.body),
             data=data,
             token=msg.address,
+            webpush=messaging.WebpushConfig(headers={"Urgency": "high"}),
         )
         provider_ref = await asyncio.to_thread(messaging.send, message)
         await record(

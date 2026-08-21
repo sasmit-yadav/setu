@@ -147,6 +147,13 @@ async def assert_unit_in_scope(
             SELECT u.id FROM admin_unit u JOIN descendants d ON u.parent_id = d.id
         )
         SELECT EXISTS (SELECT 1 FROM descendants WHERE id = $2)
+            OR EXISTS (
+                SELECT 1
+                FROM admin_unit scope
+                JOIN admin_unit target ON target.id = $2
+                WHERE scope.id = $1
+                  AND ST_Intersects(scope.geom, target.geom)
+            )
         """,
         principal.unit_scope_id,
         unit_id,
@@ -178,10 +185,32 @@ async def assert_alert_in_scope(
         raise _forbidden("unit_scope")
 
 
+async def assert_delivery_in_scope(
+    conn: asyncpg.Connection, principal: Principal, delivery_id: int
+) -> None:
+    unit_id = await conn.fetchval(
+        """
+        SELECT r.unit_id FROM delivery d
+        JOIN recipient r ON r.id = d.recipient_id
+        WHERE d.id = $1
+        """,
+        delivery_id,
+    )
+    if unit_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="delivery_not_found")
+    await assert_unit_in_scope(conn, principal, int(unit_id))
+
+
 # ── convenience dependencies, named after Part 26's columns ──
 require_officer = require_role(OFFICER, STATE_ADMIN)
 require_state_admin = require_role(STATE_ADMIN)
 require_operational_read = require_role(OFFICER, STATE_ADMIN, AUDITOR)
+require_assistance_read = require_role(OFFICER, STATE_ADMIN, AUDITOR)
+require_citizen_write = require_role(CITIZEN, OFFICER, STATE_ADMIN, RELAY_NODE)
+require_relay_summary = require_role(OFFICER, STATE_ADMIN, AUDITOR, RELAY_NODE)
+require_relay_confirm = require_role(OFFICER, STATE_ADMIN, RELAY_NODE)
+require_alert_read = require_role(CITIZEN, OFFICER, STATE_ADMIN, AUDITOR)
+require_models_read = require_role(STATE_ADMIN, AUDITOR)
 require_any_authenticated = require_role(*sorted(ALL_ROLES))
 
 

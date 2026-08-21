@@ -16,13 +16,10 @@ INSERT INTO alert_source (source_id, class_path, config, poll_interval_s, is_aut
      "timeout_s": 30, "not_modified_status": 304}'::jsonb,
    300, true, true),
 
-  -- enabled=false until services/ingestion/adapters/thunderstorm.py exists.
-  -- The row is seeded now so the source_id, its Rule 12 is_authoritative=false
-  -- stance, and its poll interval are all reviewable in git before the code
-  -- lands — but a source cannot be "enabled" when its adapter is unwritten.
+  -- enabled once ThunderstormNowcastAdapter exists. is_authoritative=false (Rule 12).
   ('thunderstorm_nowcast', 'services.ingestion.adapters.thunderstorm.ThunderstormNowcastAdapter',
    '{"base_url": "https://api.open-meteo.com/v1/forecast"}'::jsonb,
-   900, false, false),  -- [v3.0] our own model — NOT authoritative (Rule 12)
+   900, false, true),  -- [v3.0] our own model — NOT authoritative (Rule 12)
 
   -- 'manual' is a PROVENANCE, not a feed. Officer-composed alerts arrive via
   -- POST /api/v1/alerts (the composer), never by polling — so there is no

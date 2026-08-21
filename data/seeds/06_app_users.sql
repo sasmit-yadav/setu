@@ -13,11 +13,9 @@
 -- get real hashed credentials injected from the environment, never from this
 -- committed file (see CLAUDE.md's secrets rule).
 --
--- unit_scope_id is left NULL deliberately: Part 26 scopes officers to their
--- own district, but scoping is enforced in the API layer, and hardcoding a
--- specific admin_unit id here would break the moment geometry is reloaded
--- (ids are BIGSERIAL, not stable across a reload). Scope is assigned by
--- lookup at the point RBAC lands, not baked into a seed.
+-- unit_scope_id is left NULL in this seed: admin_unit ids are BIGSERIAL and
+-- not stable across a geometry reload. python run.py provision-demo assigns
+-- scopes by ILIKE name lookup from demo.unit_scope.<email> in app_config.
 
 INSERT INTO app_user (email, role, unit_scope_id, active) VALUES
   -- Two DISTINCT officers: the entire point of the Four-Eyes beat. Officer A

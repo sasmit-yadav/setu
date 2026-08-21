@@ -16,8 +16,14 @@ class RedisKeys:
     def zset_retry(self) -> str:
         return f"{self._ns}:zset:retry"
 
+    def zset_assistance(self) -> str:
+        return f"{self._ns}:zset:assistance"
+
     def channel_alert(self, alert_id: int) -> str:
         return f"{self._ns}:chan:alert:{alert_id}"
+
+    def channel_ops(self) -> str:
+        return f"{self._ns}:chan:ops"
 
     def lock_ingest(self, source_id: str) -> str:
         return f"{self._ns}:lock:ingest:{source_id}"

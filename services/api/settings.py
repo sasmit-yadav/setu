@@ -28,6 +28,15 @@ class Settings(BaseSettings):
 
     # ── channels ──
     fcm_service_account_json: str = "./secrets/fcm-service-account.json"
+    # Firebase WEB config — not secret (it ships inside the PWA bundle either
+    # way), but it's deployment-environment-specific like hf_space_url, so it
+    # lives here rather than in app_config (which is business policy, not
+    # per-environment identifiers).
+    firebase_api_key: str = ""
+    firebase_project_id: str = ""
+    firebase_messaging_sender_id: str = ""
+    firebase_app_id: str = ""
+    firebase_vapid_public_key: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_webhook_auth_token: str = ""
@@ -42,6 +51,9 @@ class Settings(BaseSettings):
     # ── ml service (Part 22 — services/api must never import torch) ──
     hf_space_url: str = ""
     internal_ml_key: str = ""
+    setu_load_ml_models: str = ""
+    setu_translate_hf_id: str = ""
+    setu_embed_hf_id: str = ""
 
     # ── platform ──
     jwt_signing_secret: str = ""

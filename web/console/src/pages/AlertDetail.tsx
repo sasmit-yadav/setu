@@ -1,22 +1,3 @@
-/** Alert Detail — where the governance layer becomes visible.
- *
- * This screen carries three of Part 0.5's four v3.0 visual beats at once: the
- * quality gate as a pre-flight checklist, the approval panel that is visibly
- * incomplete until a second human acts, and the assurance ladder with its
- * struck-through rungs.
- *
- * The composition rule from Part 0.5, applied literally: the reason a control
- * is blocked sits ADJACENT to that control. The dispatch button and the
- * sentence explaining why it is disabled are in the same box, always visible,
- * never a toast the officer can dismiss and forget.
- *
- * OPTIMISTIC UI IS BANNED HERE (Part 11.3). Nothing renders as approved,
- * dispatched or delivered until the server has confirmed it — "showing
- * 'acknowledged' before the server confirms would be a lie in exactly the
- * place lies are most dangerous". Every mutation below re-reads from the API
- * rather than patching local state.
- */
-
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Send } from "lucide-react";
 import {
@@ -24,6 +5,7 @@ import {
   endpoints,
   type AlertDetail as AlertDetailT,
   type AssuranceResponse,
+  type PublicConfig,
   type ValidateResponse,
 } from "../lib/api";
 import { SeverityBadge } from "../components/SeverityBadge";
@@ -32,28 +14,48 @@ import { ApprovalPanel } from "../components/ApprovalPanel";
 import { AssuranceLadder } from "../components/AssuranceLadder";
 import { Kpi } from "../components/Kpi";
 
-const AUTHORITATIVE_SOURCES = new Set(["usgs", "gdacs"]);
+function cfgInt(cfg: PublicConfig | null, key: string): number | null {
+  const value = cfg?.[key];
+  return typeof value === "number" ? value : null;
+}
 
-export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) {
+export function AlertDetail({
+  id,
+  onBack,
+  onIncident,
+  onOpen,
+}: {
+  id: number;
+  onBack: () => void;
+  onIncident?: (incidentId: number) => void;
+  onOpen?: (alertId: number) => void;
+}) {
   const [alert, setAlert] = useState<AlertDetailT | null>(null);
   const [gate, setGate] = useState<ValidateResponse | null>(null);
   const [assurance, setAssurance] = useState<AssuranceResponse | null>(null);
+  const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [approvals, setApprovals] = useState<{ have: number; need: number } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
   const [selfApproved, setSelfApproved] = useState(false);
+  const [changeReason, setChangeReason] = useState("");
+  const [nextSeverity, setNextSeverity] = useState("");
 
   const refresh = useCallback(async () => {
-    const [a, s] = await Promise.all([endpoints.alert(id), endpoints.assurance(id)]);
+    const [a, s, publicCfg] = await Promise.all([
+      endpoints.alert(id),
+      endpoints.assurance(id),
+      endpoints.publicConfig(),
+    ]);
     setAlert(a);
     setAssurance(s);
+    setCfg(publicCfg);
+    setApprovals({ have: a.approval_have, need: a.approval_need });
   }, [id]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const authoritative = alert ? AUTHORITATIVE_SOURCES.has(alert.source_id) : false;
 
   async function runGate() {
     setBusy("gate");
@@ -92,8 +94,6 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
       });
       await refresh();
     } catch (err) {
-      // The status-code contract (Part 10) is deliberately specific so the
-      // officer is told WHICH gate stopped them, not a generic failure.
       if (err instanceof ApiError) {
         const d = err.detail as Record<string, unknown> | undefined;
         if (err.code === "quality_gate") {
@@ -109,7 +109,7 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
           });
           setNotice({ tone: "danger", text: "Dispatch blocked by the quality gate." });
         } else if (err.code === "approval_quorum" || err.code === "approval_required") {
-          setApprovals({ have: Number(d?.have ?? 0), need: Number(d?.need ?? 2) });
+          setApprovals({ have: Number(d?.have ?? 0), need: Number(d?.need ?? 0) });
           setNotice({ tone: "danger", text: "Dispatch blocked — authorization incomplete." });
         } else if (err.code === "unit_scope") {
           setNotice({ tone: "danger", text: "This alert is outside your district." });
@@ -122,21 +122,58 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
     }
   }
 
+  async function escalate() {
+    if (!changeReason.trim()) {
+      setNotice({ tone: "danger", text: "A change reason is required to open a new version." });
+      return;
+    }
+    setBusy("version");
+    setNotice(null);
+    try {
+      const created = await endpoints.newVersion(id, {
+        change_reason: changeReason.trim(),
+        severity: nextSeverity || undefined,
+      });
+      if (onOpen) onOpen(created.alert_id);
+    } catch {
+      setNotice({ tone: "danger", text: "Could not create a new version." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadPdf() {
+    setBusy("pdf");
+    try {
+      const blob = await endpoints.reportPdf(id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `setu-alert-${id}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setNotice({ tone: "danger", text: "Could not generate the audit PDF." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!alert) return <div className="screen"><p className="muted">Loading…</p></div>;
 
   const gateBlocks = gate?.blocked ?? false;
-  const approvalsShort = approvals ? approvals.have < approvals.need : false;
+  const have = approvals?.have ?? alert.approval_have;
+  const need = approvals?.need ?? alert.approval_need;
+  const approvalsShort = have < need;
   const dispatchDisabled = busy !== null || gateBlocks || approvalsShort;
 
   const deliveries = assurance?.deliveries ?? [];
-  const reached = deliveries.filter((d) => d.assurance_level >= 2).length;
-  const acked = deliveries.filter((d) => d.assurance_level >= 4).length;
+  const reachedFloor = cfgInt(cfg, "reachability.reached_tier_floor");
+  const ackedFloor = cfgInt(cfg, "reachability.acknowledged_tier_floor");
+  const extraLadders = cfgInt(cfg, "ui.ladder_extra_sample") ?? 0;
+  const reached = reachedFloor == null ? 0 : deliveries.filter((d) => d.assurance_level >= reachedFloor).length;
+  const acked = ackedFloor == null ? 0 : deliveries.filter((d) => d.assurance_level >= ackedFloor).length;
 
-  // Progressive disclosure (Part 0.4.3): a 250-delivery alert must not render
-  // 250 ladders. But the sample is chosen ONE PER CHANNEL FIRST, not "the
-  // first 12 by id" — every channel proves a different SHAPE of evidence, and
-  // a siren's three struck-through rungs are the most informative thing on
-  // this screen. Ordering by id buried it behind 250 identical sim ladders.
   const sample = (() => {
     const seen = new Set<string>();
     const perChannel: typeof deliveries = [];
@@ -146,7 +183,7 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
         perChannel.push(d);
       }
     }
-    const rest = deliveries.filter((d) => !perChannel.includes(d)).slice(0, 8);
+    const rest = deliveries.filter((d) => !perChannel.includes(d)).slice(0, extraLadders);
     return [...perChannel, ...rest];
   })();
 
@@ -156,13 +193,24 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
         <button className="btn btn--ghost" onClick={onBack}>
           <ArrowLeft size={14} aria-hidden /> Back
         </button>
-        <h2>
-          <span className="mono muted">#{alert.id}</span> {alert.headline}
-        </h2>
+        <div>
+          <p className="screen__kicker">Alert</p>
+          <h2>
+            <span className="mono muted">#{alert.id}</span> {alert.headline}
+          </h2>
+        </div>
         <SeverityBadge severity={alert.severity} />
         <span className={`status status--${alert.lifecycle_status}`}>
           {alert.lifecycle_status}
         </span>
+        {alert.incident_id && onIncident && (
+          <button className="btn btn--ghost" onClick={() => onIncident(alert.incident_id!)}>
+            Incident
+          </button>
+        )}
+        <button className="btn btn--ghost" onClick={() => void downloadPdf()} disabled={busy !== null}>
+          Audit PDF
+        </button>
       </header>
 
       <p className="alert__body">{alert.body}</p>
@@ -170,18 +218,21 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
       <section className="kpis" aria-label="Delivery summary">
         <Kpi label="Targeted" value={alert.target_count} />
         <Kpi label="Deliveries" value={deliveries.length} />
-        <Kpi
-          label="Device delivered"
-          value={reached}
-          tone="info"
-          note="tier 2+ — provider acceptance alone does not count"
-        />
-        <Kpi label="Acknowledged" value={acked} tone={acked ? "ok" : undefined} />
+        {reachedFloor != null && (
+          <Kpi
+            label="Device delivered"
+            value={reached}
+            tone="info"
+            note={`tier ${reachedFloor}+ — provider acceptance alone does not count`}
+          />
+        )}
+        {ackedFloor != null && (
+          <Kpi label="Acknowledged" value={acked} tone={acked ? "ok" : undefined} />
+        )}
       </section>
 
       <div className="detail__cols">
         <div className="detail__col">
-          {/* ── governance ─────────────────────────────────────────── */}
           <div className="panel detail__box">
             <h3>Pre-dispatch</h3>
             {gate ? (
@@ -202,10 +253,10 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
 
           <div className="panel detail__box">
             <ApprovalPanel
-              have={approvals?.have ?? 0}
-              need={approvals?.need ?? (alert.severity === "severe" || alert.severity === "extreme" ? 2 : 1)}
-              authoritative={authoritative}
-              onApprove={authoritative ? undefined : () => void approve()}
+              have={have}
+              need={need}
+              authoritative={alert.is_authoritative}
+              onApprove={alert.is_authoritative ? undefined : () => void approve()}
               approving={busy === "approve"}
               selfAlreadyApproved={selfApproved}
             />
@@ -220,16 +271,14 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
               <Send size={14} aria-hidden />
               {busy === "dispatch" ? "Dispatching…" : "Dispatch alert"}
             </button>
-            {/* The reason lives NEXT TO the button it blocks. Seatbelt, not
-                nag — and never a dismissible banner. */}
             {gateBlocks && (
               <p className="danger detail__why">
                 Blocked: the quality gate has failing checks above.
               </p>
             )}
-            {approvalsShort && approvals && (
+            {approvalsShort && (
               <p className="danger detail__why">
-                Blocked: {approvals.have} of {approvals.need} approvals recorded.
+                Blocked: {have} of {need} approvals recorded.
                 The second approval must come from a different officer.
               </p>
             )}
@@ -239,9 +288,35 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
               </p>
             )}
           </div>
+
+          <div className="panel detail__box">
+            <h3>New version</h3>
+            <p className="muted">Escalating severity drafts vN+1. Change reason is required.</p>
+            <label className="field">
+              <span>Change reason</span>
+              <input value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Severity</span>
+              <select value={nextSeverity} onChange={(e) => setNextSeverity(e.target.value)}>
+                <option value="">Keep current</option>
+                <option value="minor">minor</option>
+                <option value="moderate">moderate</option>
+                <option value="severe">severe</option>
+                <option value="extreme">extreme</option>
+              </select>
+            </label>
+            <button
+              className="btn"
+              type="button"
+              disabled={busy !== null || !changeReason.trim()}
+              onClick={() => void escalate()}
+            >
+              {busy === "version" ? "Creating…" : "Create new version"}
+            </button>
+          </div>
         </div>
 
-        {/* ── evidence ─────────────────────────────────────────────── */}
         <div className="detail__col">
           <div className="panel detail__box">
             <h3>Delivery assurance</h3>
@@ -256,9 +331,6 @@ export function AlertDetail({ id, onBack }: { id: number; onBack: () => void }) 
               ))}
             </div>
             {deliveries.length > sample.length && (
-              // Part 0.5's guardrail against silent truncation: say what is
-              // being shown and what is being left out, rather than letting a
-              // capped list read as the whole set.
               <p className="muted">
                 Showing {sample.length} of {deliveries.length.toLocaleString()}{" "}
                 deliveries — one per channel first, then most recent.

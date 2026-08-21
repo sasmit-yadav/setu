@@ -13,13 +13,20 @@ export function setVerifyKey(publicKeyB64: string) {
   cachedKey = b64ToBytes(publicKeyB64);
 }
 
+export function canonicalJson(payload: Record<string, unknown>): string {
+  const ordered: Record<string, unknown> = {};
+  for (const key of Object.keys(payload).sort()) {
+    ordered[key] = payload[key];
+  }
+  return JSON.stringify(ordered);
+}
+
 export async function verifyAlertSignature(
   payload: Record<string, unknown>,
   signatureB64: string | undefined,
 ): Promise<boolean> {
   if (!signatureB64 || !cachedKey) return false;
-  const body = JSON.stringify(payload, Object.keys(payload).sort());
-  const message = new TextEncoder().encode(body);
+  const message = new TextEncoder().encode(canonicalJson(payload));
   const signature = b64ToBytes(signatureB64);
   return ed.verify(signature, message, cachedKey);
 }

@@ -20,9 +20,12 @@ from services.delivery.channels.base import (
 from services.delivery.channels.registry import load_channel_adapters
 from services.delivery.fatigue import apply_headline
 from services.delivery.keys import keys
+from services.delivery.ops_events import publish_ops
 from services.delivery.receipts import store_nonce
+from services.delivery.relay_escalation import on_channels_exhausted
 from services.delivery.state_machine import transition
 from services.delivery.states import State
+from services.ml.translate import resolve_alert_text
 
 logger = structlog.get_logger(__name__)
 
@@ -79,7 +82,7 @@ async def build_message(conn: asyncpg.Connection, delivery_id: int) -> OutboundM
     row = await conn.fetchrow(
         """
         SELECT d.id, d.alert_id, d.recipient_id, c.code AS channel_code,
-               a.headline, a.body, a.severity, a.effective_at,
+               a.headline, a.body, a.severity, a.effective_at, r.preferred_lang,
                r.push_token, r.kind, r.phone_enc, r.email_enc
         FROM delivery d
         JOIN alert a ON a.id = d.alert_id
@@ -91,7 +94,8 @@ async def build_message(conn: asyncpg.Connection, delivery_id: int) -> OutboundM
     )
     if row is None:
         raise ValueError(f"delivery {delivery_id} not found")
-    headline, _ = await apply_headline(conn, row["alert_id"], row["headline"])
+    resolved = await resolve_alert_text(conn, row["alert_id"], row["preferred_lang"])
+    headline, _ = await apply_headline(conn, row["alert_id"], resolved.headline)
     address = await _resolve_address(conn, row)
     signature = None
     if settings.alert_signing_seed_b64:
@@ -111,7 +115,7 @@ async def build_message(conn: asyncpg.Connection, delivery_id: int) -> OutboundM
         channel_code=row["channel_code"],
         address=address,
         headline=headline,
-        body=row["body"],
+        body=resolved.body,
         ack_url=f"{settings.public_base_url}/api/v1/ack",
         receipt_nonce=str(uuid.uuid4()),
         signature=signature,
@@ -131,7 +135,8 @@ async def process_recipient(
         FROM delivery d
         JOIN channel c ON c.id = d.channel_id
         WHERE d.alert_id = $1 AND d.recipient_id = $2
-        ORDER BY d.attempt ASC
+          AND d.state IN ('pending', 'queued')
+        ORDER BY d.attempt ASC, d.id ASC
         LIMIT 1
         """,
         alert_id,
@@ -154,6 +159,14 @@ async def process_recipient(
             try:
                 result = await adapter.send(message)
             except ChannelUnavailable:
+                if row["code"] not in ("human_relay", "sim"):
+                    await on_channels_exhausted(
+                        conn,
+                        redis,
+                        alert_id=alert_id,
+                        recipient_id=recipient_id,
+                        exhausted_delivery_id=delivery_id,
+                    )
                 sim = adapters.get("sim")
                 if sim is None:
                     await transition(conn, delivery_id, State.failed, reason="channel_unavailable")
@@ -184,7 +197,7 @@ async def process_batch(conn: asyncpg.Connection, redis: Redis, fields: dict) ->
     adapters = await load_channel_adapters(conn)
     for recipient_id in recipient_ids:
         await process_recipient(conn, redis, adapters, alert_id, int(recipient_id))
-    await redis.publish(keys.channel_alert(alert_id), json.dumps({"alert_id": alert_id}))
+    await publish_ops(redis, {"type": "delivery.batch", "alert_id": alert_id})
 
 
 async def worker_loop(consumer: str, shutdown: asyncio.Event | None = None) -> None:

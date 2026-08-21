@@ -17,6 +17,13 @@ Two of these do NOT behave like API keys, and Part 25 says so for a reason:
                          requires shipping a new bundle. Rotating it is a
                          RELEASE, not an env change.
 
+  PGCRYPTO_SYM_KEY       A DATA-SHAPING secret, same category as the pepper.
+                         Every recipient.phone_enc / email_enc is
+                         pgp_sym_encrypt()'d under this passphrase. Rotating it
+                         orphans every already-encrypted value — decrypt-then-
+                         re-encrypt every row first, or every phone/email on
+                         file becomes permanently unreadable.
+
 The public key is printed too — it is public BY DESIGN (§1.5.3, Rule 11) and is
 safe to commit to the build config. A device with no network still verifies
 alert authenticity against it, which is the entire point of B10.
@@ -45,6 +52,7 @@ def main() -> int:
     _fix_windows_console_encoding()
     print("\n# ── paste into .env ─────────────────────────────────────────────")
     print(f"PHONE_HASH_PEPPER={secrets.token_urlsafe(32)}")
+    print(f"PGCRYPTO_SYM_KEY={secrets.token_urlsafe(32)}")
     print(f"JWT_SIGNING_SECRET={secrets.token_urlsafe(48)}")
     print(f"WEBHOOK_HMAC_SECRET={secrets.token_urlsafe(48)}")
     print(f"INTERNAL_ML_KEY={secrets.token_urlsafe(32)}")

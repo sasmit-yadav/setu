@@ -6,17 +6,50 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from services.api import config_repo
+from services.api.auth import Principal
 from services.api.deps import get_conn
+from services.api.rbac import (
+    RELAY_NODE,
+    assert_unit_in_scope,
+    optional_principal,
+    require_operational_read,
+)
 from services.api.schemas import ReachabilityOut, UnitRiskOut, VulnerabilityOut
 
 router = APIRouter(prefix="/api/v1/units", tags=["units"])
+
+
+@router.get("")
+async def list_units(
+    q: str | None = None,
+    limit: int | None = None,
+    conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal | None = Depends(optional_principal),
+) -> list[dict]:
+    if principal is not None and principal.role == RELAY_NODE:
+        raise HTTPException(status_code=403, detail={"error": "forbidden", "code": "role"})
+    effective_limit = limit if limit is not None else await config_repo.get_int(conn, "api.list_default_limit")
+    rows = await conn.fetch(
+        """
+        SELECT id, name, level
+        FROM admin_unit
+        WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%')
+        ORDER BY level, name
+        LIMIT $2
+        """,
+        q,
+        effective_limit,
+    )
+    return [{"unit_id": row["id"], "name": row["name"], "level": row["level"]} for row in rows]
 
 
 @router.get("/{unit_id}/reachability", response_model=ReachabilityOut)
 async def unit_reachability(
     unit_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> ReachabilityOut:
+    await assert_unit_in_scope(conn, principal, unit_id)
     row = await conn.fetchrow(
         "SELECT * FROM v_reachability WHERE unit_id = $1",
         unit_id,
@@ -42,13 +75,37 @@ async def unit_reachability(
 async def unit_vulnerability(
     unit_id: int,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
 ) -> VulnerabilityOut:
+    await assert_unit_in_scope(conn, principal, unit_id)
     row = await conn.fetchrow(
         "SELECT * FROM v_communication_vulnerability WHERE unit_id = $1",
         unit_id,
     )
     if row is None:
-        raise HTTPException(status_code=404, detail="unit_not_found")
+        unit = await conn.fetchrow(
+            """
+            SELECT u.id, u.name, rv.recipient_reach_pct
+            FROM admin_unit u
+            LEFT JOIN v_reachability rv ON rv.unit_id = u.id
+            WHERE u.id = $1
+            """,
+            unit_id,
+        )
+        if unit is None:
+            raise HTTPException(status_code=404, detail="unit_not_found")
+        return VulnerabilityOut(
+            unit_id=unit["id"],
+            name=unit["name"],
+            tower_count_5km=None,
+            nearest_tower_km=None,
+            terrain_ruggedness=None,
+            historical_reach_pct=float(unit["recipient_reach_pct"])
+            if unit["recipient_reach_pct"] is not None
+            else None,
+            primary_factors=[],
+            recommended_fallback="unknown_connectivity_features_pending",
+        )
     return VulnerabilityOut(
         unit_id=row["unit_id"],
         name=row["name"],
@@ -66,7 +123,12 @@ async def unit_risk(
     unit_id: int,
     alert_id: int | None = None,
     conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal | None = Depends(optional_principal),
 ) -> UnitRiskOut:
+    if principal is not None and principal.role == RELAY_NODE:
+        raise HTTPException(status_code=403, detail={"error": "forbidden", "code": "role"})
+    if principal is not None:
+        await assert_unit_in_scope(conn, principal, unit_id)
     unit = await conn.fetchrow("SELECT id FROM admin_unit WHERE id = $1", unit_id)
     if unit is None:
         raise HTTPException(status_code=404, detail="unit_not_found")
@@ -105,10 +167,7 @@ async def unit_risk(
             top_factors=[],
             recommended_action=vuln["recommended_fallback"] if vuln else None,
             is_bootstrap=True,
-            disclosure=(
-                "Bootstrap reach-risk model — no labelled acknowledgement outcomes exist yet. "
-                "Structural vulnerability view shown where prediction is unavailable."
-            ),
+            disclosure=await config_repo.get_str(conn, "reach_risk.disclosure.missing"),
         )
     features = row["features"]
     if isinstance(features, str):
@@ -119,7 +178,7 @@ async def unit_risk(
             top_factors.append({"factor": key, "value": value})
     limit = await config_repo.get_int(conn, "risk.top_factors_limit")
     disclosure = (
-        "Bootstrap model pending real-world acknowledgement data."
+        await config_repo.get_str(conn, "reach_risk.disclosure.bootstrap")
         if row["is_bootstrap"]
         else f"Model {row['name']} {row['version']}."
     )

@@ -24,8 +24,10 @@ async def main() -> int:
     csv_dir = ROOT / "data" / "enrollment"
     files = sorted(csv_dir.glob("*.csv"))
     if not files:
-        print(f"No CSV files in {csv_dir} — run: python scripts/generate_enrollment_template.py")
-        return 0
+        print(f"No CSV files in {csv_dir}")
+        print("Generate a template first: python scripts/generate_enrollment_template.py")
+        print("Then fill real consented rows. This command will not invent recipients.")
+        return 1
     dsn = os.environ.get("DATABASE_URL_DIRECT", "postgresql://setu:setu@localhost:5433/setu")
     conn = await asyncpg.connect(dsn=dsn)
     try:

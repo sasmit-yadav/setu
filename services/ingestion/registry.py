@@ -61,7 +61,7 @@ async def load_adapters(conn: asyncpg.Connection) -> dict[str, AlertSourceAdapte
     for row in rows:
         config = dict(row["config"])
         try:
-            adapter = import_adapter(row["class_path"], {**http_defaults, **config})
+            adapter = import_adapter(row["class_path"], {**http_defaults, **config, "conn": conn})
         except (ImportError, AttributeError, TypeError) as exc:
             # One unbuildable adapter must never take the whole registry down
             # with it. A seeded row whose module does not exist yet (or whose

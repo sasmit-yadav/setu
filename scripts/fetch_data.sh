@@ -82,9 +82,7 @@ fi
 
 echo
 echo "== 6. BASEMAP — Protomaps PMTiles =="
-echo "   [RECONFIRM] exact current build filename at build.protomaps.com —"
-echo "   the date-stamped build path must be checked at load time, not hardcoded."
-echo "   Not fetched automatically here; see docs/SETU_MASTER_v3.0_MERGED.md §1.6.5."
+python scripts/fetch_basemap.py
 
 echo
 echo "Done. Run scripts/verify_data_sources.py again any time to re-confirm liveness."

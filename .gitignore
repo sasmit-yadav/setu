@@ -27,6 +27,7 @@ dist/
 # ── data: downloaded at build time, never committed (§1.6.2) ──
 data/raw/
 !data/raw/.gitkeep
+data/enrollment/*.csv
 
 # ── committed on purpose: data/seeds/ and data/snapshots/ (Rule 3, §15) ──
 
@@ -39,3 +40,12 @@ Thumbs.db
 
 # TypeScript incremental build cache — machine-local, never committed
 *.tsbuildinfo
+
+.cache/
+
+# ── local dev artifacts ──
+# vite-plugin-pwa's dev service-worker output; regenerated on every dev run.
+dev-dist/
+# ngrok tunnel log. Not a credential, but it records the ephemeral public URL
+# and is pure local noise.
+ngrok.log

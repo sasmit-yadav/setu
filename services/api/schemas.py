@@ -102,8 +102,10 @@ class CitizenResponseOut(BaseModel):
 
 
 class AssistanceCaseOut(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     id: int
-    citizen_response_id: int
+    citizen_response_id: int | None = None
     priority_score: float
     priority_factors: dict
     model_version: str
@@ -113,11 +115,37 @@ class AssistanceCaseOut(BaseModel):
     alert_id: int
     unit_id: int
     unit_name: str
+    free_text: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+
+class AssistanceSummaryRow(BaseModel):
+    unit_id: int
+    unit_name: str
+    open_count: int
 
 
 class AssignCaseRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     assigned_team: str = Field(min_length=1)
-    assigned_by: int | None = None
+
+
+class PatchCaseRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    status: str = Field(min_length=1)
+    assigned_team: str | None = None
+
+
+class PatchAlertRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    expires_at: datetime | None = None
+    headline: str | None = None
+    body: str | None = None
+    severity: str | None = None
 
 
 class TimelineEventOut(BaseModel):
@@ -128,6 +156,16 @@ class TimelineEventOut(BaseModel):
     occurred_at: str
     alert_id: int | None = None
     delivery_id: int | None = None
+
+
+class IncidentSummaryOut(BaseModel):
+    id: int
+    label: str
+    incident_type: str
+    status: str
+    origin_source: str
+    opened_at: str
+    version_count: int
 
 
 class IncidentDetailOut(BaseModel):
@@ -147,6 +185,15 @@ class AckRequest(BaseModel):
 class AckResponse(BaseModel):
     delivery_id: int
     duplicate: bool
+
+
+class DeviceRegisterRequest(BaseModel):
+    push_token: str
+
+
+class DeviceRegisterResponse(BaseModel):
+    recipient_id: int
+    unit_id: int
 
 
 class ReceiptRequest(BaseModel):
@@ -232,6 +279,7 @@ class AlertSummaryOut(BaseModel):
     lifecycle_status: str
     effective_at: str
     expires_at: str | None
+    is_authoritative: bool = False
 
 
 class AlertDetailOut(BaseModel):
@@ -247,6 +295,9 @@ class AlertDetailOut(BaseModel):
     effective_at: str
     expires_at: str | None
     target_count: int
+    is_authoritative: bool = False
+    approval_have: int = 0
+    approval_need: int = 1
 
 
 class PreviewResponse(BaseModel):
