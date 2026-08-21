@@ -167,11 +167,22 @@ uses a same-origin Vite proxy; deployed, it is genuinely cross-origin.
 `CORS_ALLOWED_ORIGINS` and redeploy the API. This ordering is unavoidable —
 you cannot know the origin until Vercel assigns it.
 
-> **The SPA rewrite matters.** `vercel.json` deliberately excludes `/sw.js`,
-> `/registerSW.js`, `/manifest.webmanifest`, `/icon-*` and `/assets/*` from the
-> catch-all. A naive rewrite returns `index.html` for `/sw.js`, which then
-> registers as an HTML document and dies — the same class of failure that
-> silently killed the dev service worker for the whole build.
+> **The SPA rewrite matters — do not "simplify" it.** `vercel.json` deliberately
+> excludes `/sw.js`, `/registerSW.js`, `/manifest.webmanifest`, `/icon-*` and
+> `/assets/*` from the catch-all. A naive rewrite returns `index.html` for
+> `/sw.js`, which then registers as an HTML document and dies — the same class
+> of failure that silently killed the dev service worker for the whole build.
+> The negative lookahead was tested against every file the build actually emits.
+>
+> This explanation lives here rather than in `vercel.json` because Vercel
+> validates that file against a strict schema and rejects unknown keys —
+> including a `comment` field inside a rewrite:
+>
+> ```
+> Invalid request: `rewrites[0]` should NOT have additional property `comment`.
+> ```
+>
+> JSON has no comment syntax, so the reasoning has to sit outside the file.
 
 ---
 

@@ -5,7 +5,6 @@
   "framework": "vite",
   "rewrites": [
     {
-      "comment": "SPA fallback, but the service worker and its assets MUST be served as themselves. A naive catch-all returns index.html for /sw.js, which registers as an HTML document and dies with a MIME/evaluation error — the same class of failure that silently killed the dev worker.",
       "source": "/((?!assets/|icon-|manifest\\.webmanifest|sw\\.js|registerSW\\.js|workbox-).*)",
       "destination": "/index.html"
     }
