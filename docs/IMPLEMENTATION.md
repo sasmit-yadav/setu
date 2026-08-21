@@ -612,8 +612,10 @@ a module ships. Last verified 21 Aug 2026: **267 passed, 2 skipped**,
 `ruff check services/` green. Live-provider status: **Twilio SMS proven end to
 end** (real `provider_accepted` → real carrier callback → `device_delivered`);
 Firebase credential authenticates but no token has been minted yet, so
-`delivery_event` still holds zero rows with `source='fcm_send'`. See §6.13 for
-what the audit that produced these numbers found.
+`delivery_event` still holds zero rows with `source='fcm_send'`. **Deployed**
+to Vercel + Render + Neon + Upstash at ₹0 (§6.14); Part 19's Redis-budget and
+DEM boxes closed with real measurements, and a citizen-facing bug the deploy
+surfaced is fixed (§6.15). See §6.13 for what the original audit found.
 
 ### 6.1 FastAPI surface (`services/api/`)
 
@@ -1383,6 +1385,86 @@ consuming, so the consumer count is not a usable liveness signal there.
 piece of the push path is wired and verified; what remains is a human granting
 notification permission on a real handset. Until then the primary channel is
 unproven, which is Part 16 Day 4's exit-gate criterion.
+
+---
+
+### 6.15 Closing the two unmeasured Part 19 boxes, and a citizen-facing bug the deploy surfaced
+
+Two Part 19 boxes had sat as "neither blocked nor done, just unmeasured"
+since the audit in §6.13. Both closed the same day, with real measurements
+rather than assumptions — and the second one found a genuine defect.
+
+#### The four-tile DEM check (#25)
+
+Part 29 gives the exact command:
+
+```bash
+aws s3 ls --no-sign-request \
+  "s3://copernicus-dem-30m/Copernicus_DSM_COG_30_${tile}_DEM/"
+```
+
+Run as written, it returns nothing for all four tiles — which reads as
+"all four missing." **That command is wrong.** The bucket's objects are keyed
+`COG_10`, not `COG_30` — already noted independently in §3.6's "Copernicus DEM
+tile keys are named `COG_10`, not `COG_30`" and used correctly in
+`scripts/fetch_data.sh`, but Part 29's own prose in the master spec was never
+corrected to match. Run with the right key, all four tiles — covering both
+Wayanad and Palghar, with margin — are real, present `.tif` objects on the
+live bucket. Dated log: `docs/evidence/dem-four-tile-check-2026-08-21.md`.
+
+#### The Redis command budget (#12), and what it found
+
+Part 1.4 prices every v3.0 feature at 0–2 Redis commands **per alert run**.
+B3 (§6.13) doesn't fit that model: `drain_due_retries()` calls `ZPOPMIN` on
+**every worker loop tick**, including the idle one, which fires every
+`delivery.xread_block_ms` (seeded 5000 ms) regardless of whether any alert has
+been dispatched. That is a cost that scales with *wall-clock time the worker
+runs*, not with alert volume — an axis Part 1.4's model never had to consider
+because nothing before B3 polled Redis on every idle tick.
+
+The arithmetic: `86,400,000 ms / 5,000 ms = 17,280 ticks/day`, each costing at
+least one `ZPOPMIN`. **17,280 exceeds Upstash's entire 16,600/day budget on
+idle polling alone, before a single alert is dispatched.** Given
+`worker-cloud` (§6.14) is meant to be left running for the whole
+rehearsal/demo window, this was the realistic failure mode, not an edge case.
+
+Fixed by raising `delivery.xread_block_ms` from 5000 to 15000 — a config row,
+not a literal, so the fix is a threshold change (Rule 1's whole point), applied
+via `python run.py seed-config` and `neon-seed-config` to both databases, with
+the running worker restarted to pick it up (the value is read once at startup).
+15 s of added worst-case retry latency is immaterial against the policy's own
+`wait_before_next_s` values of 45–120 s.
+
+**Honest result, not rounded up:** at a generous 4-hour continuous-run
+assumption with 10 real dispatches, the revised total lands at **4.08×
+headroom** — short of the stated **5×** target. `docs/evidence/redis-budget-2026-08-21.md`
+states this plainly and names the actual mitigation: stop the worker between
+rehearsals rather than leaving it running across a full day, since the cost is
+dominated by idle time, not alert volume.
+
+#### The citizen PWA was showing a dev/test screen to real users
+
+`docs/TASK.md` already documented the manual delivery-ID entry as
+*"Manual delivery ID entry (works without Firebase for dev/test)"* — but the
+code showed it unconditionally whenever no delivery was loaded, which is
+every first visit before a real push has ever arrived. A citizen (or a judge)
+opening the PWA for the first time saw a form asking them to type a numeric ID
+they have no way to know, with no other option.
+
+The real flow was already fully built and untouched by this fix: an alert
+arrives as a push, `notificationclick` (`sw.ts`) opens the app straight to that
+delivery, no typing involved. The bug was only in what rendered on the *empty*
+state — before any alert has ever arrived for that citizen.
+
+Fixed by gating the manual-entry form behind `import.meta.env.DEV` — Vite's own
+build flag, true under `npm run dev`, false in the production bundle Vercel
+serves — so no new config was needed, and the fix cannot regress silently:
+confirmed by `grep` that the dev-only markup is entirely absent from the built
+`dist/assets/*.js`. In its place, the empty-state screen now surfaces
+**"Enable alerts on this phone"** — the same `POST /api/v1/citizen/device` path
+already built for the loaded-alert view (§6.14), just given somewhere to render
+before any alert exists. That is exposing an existing capability, not adding
+one.
 
 ---
 
