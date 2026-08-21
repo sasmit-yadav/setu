@@ -23,6 +23,7 @@ from services.delivery.keys import keys
 from services.delivery.ops_events import publish_ops
 from services.delivery.receipts import store_nonce
 from services.delivery.relay_escalation import on_channels_exhausted
+from services.delivery.retry import due_delivery_ids, handle_failure
 from services.delivery.state_machine import transition
 from services.delivery.states import State
 from services.ml.translate import resolve_alert_text
@@ -122,6 +123,57 @@ async def build_message(conn: asyncpg.Connection, delivery_id: int) -> OutboundM
     )
 
 
+async def _after_failure(
+    conn: asyncpg.Connection,
+    redis: Redis,
+    delivery_id: int,
+    *,
+    alert_id: int,
+    recipient_id: int,
+    reason: str,
+) -> dict:
+    """Apply B3's policy after a failed send, then B9 only if the chain is spent.
+
+    Split out so every failure path shares one policy decision — three call
+    sites previously each ended at `transition(failed)` and stopped, which is
+    how 462 deliveries were abandoned on their first attempt.
+    """
+    outcome = await handle_failure(conn, redis, delivery_id, reason=reason)
+    if outcome.get("decision") == "chain_exhausted":
+        # NOW the phrase "every digital channel is gone" is literally true:
+        # every step in this severity's policy has been attempted to its
+        # max_attempts. That is the only honest trigger for spending a human.
+        await on_channels_exhausted(
+            conn,
+            redis,
+            alert_id=alert_id,
+            recipient_id=recipient_id,
+            exhausted_delivery_id=delivery_id,
+        )
+    return outcome
+
+
+async def drain_due_retries(
+    conn: asyncpg.Connection,
+    redis: Redis,
+    adapters: dict,
+    *,
+    limit: int = 100,
+) -> int:
+    """Send the deliveries whose backoff has elapsed. Returns how many ran."""
+    ids = await due_delivery_ids(redis, limit=limit)
+    for delivery_id in ids:
+        row = await conn.fetchrow(
+            "SELECT alert_id, recipient_id FROM delivery WHERE id = $1", delivery_id
+        )
+        if row is None:
+            continue
+        await process_recipient(
+            conn, redis, adapters, int(row["alert_id"]), int(row["recipient_id"])
+        )
+    return len(ids)
+
+
 async def process_recipient(
     conn: asyncpg.Connection,
     redis: Redis,
@@ -159,17 +211,25 @@ async def process_recipient(
             try:
                 result = await adapter.send(message)
             except ChannelUnavailable:
-                if row["code"] not in ("human_relay", "sim"):
-                    await on_channels_exhausted(
-                        conn,
-                        redis,
-                        alert_id=alert_id,
-                        recipient_id=recipient_id,
-                        exhausted_delivery_id=delivery_id,
-                    )
+                # The channel structurally cannot serve this recipient (no push
+                # token, number not verified on the trial, no credentials). That
+                # is §8.5's simulated-carrier case, not a transient fault, so it
+                # falls back rather than retrying — retrying a channel that has
+                # no address for this person would fail identically forever.
+                #
+                # on_channels_exhausted() used to fire HERE, on the first
+                # unavailable channel, which made "every digital channel is
+                # gone" true of a single attempt on a single channel. The human
+                # relay is the last resort after the policy chain is spent, so
+                # it now hangs off chain_exhausted below.
                 sim = adapters.get("sim")
                 if sim is None:
                     await transition(conn, delivery_id, State.failed, reason="channel_unavailable")
+                    await _after_failure(
+                        conn, redis, delivery_id,
+                        alert_id=alert_id, recipient_id=recipient_id,
+                        reason="channel_unavailable",
+                    )
                     return
                 result = await sim.send(message)
                 simulated = True
@@ -187,8 +247,16 @@ async def process_recipient(
             await transition(conn, delivery_id, State.delivered)
         except ChannelUnavailable as exc:
             await transition(conn, delivery_id, State.failed, reason=exc.code)
+            await _after_failure(
+                conn, redis, delivery_id,
+                alert_id=alert_id, recipient_id=recipient_id, reason=exc.code,
+            )
         except TransientChannelError as exc:
             await transition(conn, delivery_id, State.failed, reason=str(exc))
+            await _after_failure(
+                conn, redis, delivery_id,
+                alert_id=alert_id, recipient_id=recipient_id, reason=str(exc),
+            )
 
 
 async def process_batch(conn: asyncpg.Connection, redis: Redis, fields: dict) -> None:
@@ -231,6 +299,20 @@ async def worker_loop(consumer: str, shutdown: asyncio.Event | None = None) -> N
             count=xread_count,
             block=xread_block_ms,
         )
+        # Drain due retries every tick, including the idle one. XREADGROUP's
+        # block window is the natural pacing here: an idle worker wakes every
+        # xread_block_ms, which is exactly when a scheduled retry should be
+        # picked up. Doing this only when the stream had traffic would mean a
+        # retry scheduled during a quiet period never fired.
+        try:
+            async with connect_direct() as conn:
+                adapters = await load_channel_adapters(conn)
+                sent = await drain_due_retries(conn, redis, adapters)
+            if sent:
+                logger.info("retries_drained", count=sent)
+        except Exception:
+            logger.exception("retry_drain_failed")
+
         if not messages:
             continue
         for _, entries in messages:
