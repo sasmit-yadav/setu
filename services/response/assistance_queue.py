@@ -66,12 +66,14 @@ async def rebuild_from_postgres(conn: asyncpg.Connection, redis: Redis) -> list[
 
 _CASE_SELECT = """
             SELECT ac.*, cr.response_type, cr.alert_id, cr.unit_id, u.name AS unit_name,
-                   cr.free_text,
+                   cr.free_text, ch.code AS channel_code,
                    ST_Y(cr.location::geometry) AS lat,
                    ST_X(cr.location::geometry) AS lon
             FROM assistance_case ac
             JOIN citizen_response cr ON cr.id = ac.citizen_response_id
             JOIN admin_unit u ON u.id = cr.unit_id
+            JOIN delivery d ON d.id = cr.delivery_id
+            JOIN channel ch ON ch.id = d.channel_id
 """
 
 

@@ -4,6 +4,7 @@ import { endpoints, type AssistanceCase, type PublicConfig } from "../lib/api";
 import { lookup, useT } from "../lib/i18n";
 import { Kpi } from "../components/Kpi";
 import { useOpsSocket } from "../lib/useOpsSocket";
+import { viaLabel } from "../lib/replies";
 
 function csv(cfg: PublicConfig | null, key: string): string[] {
   const value = cfg?.[key];
@@ -133,6 +134,7 @@ export function AssistanceQueue() {
         <div className="table__head queue__head" role="row">
           <span role="columnheader">{t("queue.colPriority")}</span>
           <span role="columnheader">{t("queue.colNeed")}</span>
+          <span role="columnheader">{t("queue.colVia")}</span>
           <span role="columnheader">{t("queue.colUnit")}</span>
           <span role="columnheader">{t("queue.colStatus")}</span>
           <span role="columnheader">{t("queue.colActions")}</span>
@@ -164,6 +166,7 @@ export function AssistanceQueue() {
                     {typeLabel(cfg, row.response_type)}
                     {row.free_text ? <span className="muted"> — {row.free_text}</span> : null}
                   </span>
+                  <span>{row.channel_code ? viaLabel(t, row.channel_code) : t("common.nA")}</span>
                   <span>{row.unit_name}</span>
                   <span className={`status-chip status-chip--${row.status}`}>
                     {lookup(t, "case", row.status)}

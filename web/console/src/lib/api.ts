@@ -240,6 +240,9 @@ export interface CitizenReply {
   unit_name: string;
   received_at: string;
   assistance_case_id: number | null;
+  alert_id?: number | null;
+  headline?: string | null;
+  severity?: string | null;
 }
 
 export interface AssistanceCase {
@@ -257,6 +260,7 @@ export interface AssistanceCase {
   free_text: string | null;
   lat: number | null;
   lon: number | null;
+  channel_code?: string | null;
 }
 
 export type PublicConfig = Record<string, string | number>;
@@ -485,6 +489,7 @@ export const endpoints = {
   map: () => api.get<MapPayload>("/api/v1/ops/map"),
   opsSummary: () => api.get<OpsSummary>("/api/v1/ops/summary"),
   opsFeed: () => api.get<OpsFeedItem[]>("/api/v1/ops/feed"),
+  opsReplies: () => api.get<CitizenReply[]>("/api/v1/ops/replies"),
   incidents: () => api.get<IncidentSummary[]>("/api/v1/incidents"),
   incident: (id: number) => api.get<IncidentDetail>(`/api/v1/incidents/${id}`),
   timeline: (id: number) => api.get<TimelineEvent[]>(`/api/v1/incidents/${id}/timeline`),

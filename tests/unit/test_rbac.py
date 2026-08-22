@@ -526,6 +526,9 @@ async def test_ops_summary_and_feed_require_officer(client, db_conn):
     feed = await client.get("/api/v1/ops/feed", headers={"Authorization": f"Bearer {token}"})
     assert feed.status_code == 200
     assert isinstance(feed.json(), list)
+    replies = await client.get("/api/v1/ops/replies", headers={"Authorization": f"Bearer {token}"})
+    assert replies.status_code == 200
+    assert isinstance(replies.json(), list)
     mapped = await client.get("/api/v1/ops/map", headers={"Authorization": f"Bearer {token}"})
     assert mapped.status_code == 200
 

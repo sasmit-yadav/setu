@@ -426,11 +426,13 @@ async def alert_responses(
     rows = await conn.fetch(
         """
         SELECT cr.id, c.code AS channel_code, cr.response_type, cr.free_text,
-               u.name AS unit_name, cr.received_at, ac.id AS assistance_case_id
+               u.name AS unit_name, cr.received_at, ac.id AS assistance_case_id,
+               a.id AS alert_id, a.headline, a.severity
         FROM citizen_response cr
         JOIN delivery d ON d.id = cr.delivery_id
         JOIN channel c ON c.id = d.channel_id
         JOIN admin_unit u ON u.id = cr.unit_id
+        JOIN alert a ON a.id = cr.alert_id
         LEFT JOIN assistance_case ac ON ac.citizen_response_id = cr.id
         WHERE cr.alert_id = $1
         ORDER BY cr.received_at DESC, cr.id DESC
@@ -446,6 +448,9 @@ async def alert_responses(
             unit_name=str(row["unit_name"]),
             received_at=row["received_at"].isoformat(),
             assistance_case_id=int(row["assistance_case_id"]) if row["assistance_case_id"] else None,
+            alert_id=int(row["alert_id"]),
+            headline=str(row["headline"]),
+            severity=str(row["severity"]),
         )
         for row in rows
     ]

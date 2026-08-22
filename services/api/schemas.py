@@ -118,6 +118,7 @@ class AssistanceCaseOut(BaseModel):
     free_text: str | None = None
     lat: float | None = None
     lon: float | None = None
+    channel_code: str | None = None
 
 
 class AssistanceSummaryRow(BaseModel):
@@ -247,6 +248,9 @@ class CitizenReplyOut(BaseModel):
     unit_name: str
     received_at: str
     assistance_case_id: int | None
+    alert_id: int | None = None
+    headline: str | None = None
+    severity: str | None = None
 
 
 class UnitRiskOut(BaseModel):

@@ -4,6 +4,7 @@ import { PenLine, RefreshCw } from "lucide-react";
 import {
   endpoints,
   type AlertSummary,
+  type CitizenReply,
   type MapPayload,
   type OpsFeedItem,
   type OpsSummary,
@@ -14,6 +15,7 @@ import { SeverityBadge } from "../components/SeverityBadge";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 import { Kpi } from "../components/Kpi";
 import { LiveMap } from "../components/LiveMap";
+import { ReplyInbox } from "../components/ReplyInbox";
 import { useOpsSocket } from "../lib/useOpsSocket";
 import { saidLabel, viaLabel } from "../lib/replies";
 
@@ -44,6 +46,7 @@ export function LiveOps({
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [summary, setSummary] = useState<OpsSummary | null>(null);
   const [feed, setFeed] = useState<OpsFeedItem[]>([]);
+  const [replies, setReplies] = useState<CitizenReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -52,7 +55,7 @@ export function LiveOps({
 
   const load = useCallback(async () => {
     try {
-      const [nextAlerts, usgsDrafts, gdacsDrafts, nextMap, nextCfg, nextSummary, nextFeed] = await Promise.all([
+      const [nextAlerts, usgsDrafts, gdacsDrafts, nextMap, nextCfg, nextSummary, nextFeed, nextReplies] = await Promise.all([
         endpoints.alerts(),
         endpoints.alerts({ source_id: "usgs", lifecycle_status: "draft", limit: 40 }),
         endpoints.alerts({ source_id: "gdacs", lifecycle_status: "draft", limit: 40 }),
@@ -60,6 +63,7 @@ export function LiveOps({
         endpoints.publicConfig(),
         endpoints.opsSummary(),
         endpoints.opsFeed(),
+        endpoints.opsReplies().catch(() => [] as CitizenReply[]),
       ]);
       const pinned = [...usgsDrafts, ...gdacsDrafts].filter(
         (row) => row.source_id === "usgs" || row.source_id === "gdacs",
@@ -71,6 +75,7 @@ export function LiveOps({
       setCfg(nextCfg);
       setSummary(nextSummary);
       setFeed(nextFeed);
+      setReplies(nextReplies);
       const head = nextFeed[0];
       const headKey = head
         ? `${head.delivery_id}-${head.event_type}-${head.occurred_at}`
@@ -101,7 +106,6 @@ export function LiveOps({
   });
 
   const tileSource = String(cfg?.["map.tile_source"] ?? map?.tile_source ?? "");
-  const citizenReplies = feed.filter((item) => item.event_type === "citizen_response");
 
   return (
     <div className="screen screen--wide">
@@ -199,32 +203,7 @@ export function LiveOps({
         </section>
       )}
 
-      <section className="panel replies-live" aria-label={t("live.repliesTitle")}>
-        <p className="screen__kicker">{t("live.repliesTitle")}</p>
-        {citizenReplies.length === 0 ? (
-          <p className="muted">{t("live.repliesEmpty")}</p>
-        ) : (
-          <div className="replies" role="list">
-            {citizenReplies.map((item) => (
-              <button
-                key={`${item.delivery_id}-${item.occurred_at}`}
-                type="button"
-                className="replies__row replies__row--btn"
-                onClick={() => onOpen(item.alert_id)}
-              >
-                {item.severity ? <SeverityBadge severity={item.severity} /> : null}
-                <span className="replies__via">{viaLabel(t, item.channel_code)}</span>
-                <span className="replies__said">
-                  {item.response_type
-                    ? saidLabel(cfg, item.response_type, item.free_text)
-                    : lookup(t, "feed", item.event_type)}
-                  <span className="replies__meta"> · {item.headline}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <ReplyInbox rows={replies} cfg={cfg} showWarning onOpen={onOpen} />
 
       {tileSource !== "pmtiles_local" && (
         <p className="muted" role="status">

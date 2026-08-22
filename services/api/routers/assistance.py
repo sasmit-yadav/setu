@@ -58,6 +58,7 @@ def _case_out(row: dict, *, include_pii: bool) -> AssistanceCaseOut:
         free_text=row.get("free_text") if include_pii else None,
         lat=float(lat) if include_pii and lat is not None else None,
         lon=float(lon) if include_pii and lon is not None else None,
+        channel_code=row["channel_code"],
     )
 
 

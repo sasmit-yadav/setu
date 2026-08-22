@@ -248,29 +248,36 @@ kbd {
 
 /* ── assurance ladder (WhatsApp ticks + Stripe timeline) ──────────── */
 .ladders { display: flex; flex-direction: column; gap: var(--s3); }
-.replies { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
-.replies__row {
-  display: grid;
-  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr) auto;
-  gap: var(--s2);
-  align-items: start;
-  padding: var(--s2) 0;
-  border-bottom: 1px solid var(--border-subtle);
-  font-size: var(--fs-sm);
+.reply-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  margin: var(--s4) 0;
 }
-.replies__via { font-weight: 600; }
-.replies__said { min-width: 0; }
-.replies__row--btn {
-  width: 100%;
-  background: transparent;
-  border-left: 0;
-  border-right: 0;
-  border-top: 0;
-  text-align: left;
+.reply-inbox__intro h3 { margin: 0; }
+.reply-inbox .kpis { margin: 0; }
+.reply-inbox .table__head,
+.reply-inbox .table__row {
+  grid-template-columns: 64px 128px minmax(0, 1.6fr) minmax(0, 180px);
+  padding-left: 0;
+  padding-right: 0;
+}
+.reply-inbox--alert .table__head,
+.reply-inbox--alert .table__row {
+  grid-template-columns: 64px 108px 128px minmax(0, 1.4fr) minmax(0, 140px) minmax(0, 1fr);
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+button.chip {
   cursor: pointer;
   font: inherit;
+  min-height: 28px;
 }
-.replies-live { margin: var(--s4) 0; }
+.status-chip--help { color: var(--state-danger); border-color: var(--state-danger); }
 .ladder { border: 1px solid var(--border-subtle); background: var(--bg-base); }
 .ladder__head {
   display: flex;
@@ -414,7 +421,7 @@ kbd {
 
 .queue__head,
 .queue__row {
-  grid-template-columns: 88px 1.4fr 1fr 72px auto;
+  grid-template-columns: 88px 1.2fr 0.9fr 1fr 72px auto;
 }
 .queue__score { font-size: var(--fs-md) !important; }
 .queue__geo { display: block; margin-top: var(--s1); }

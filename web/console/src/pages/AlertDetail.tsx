@@ -15,8 +15,8 @@ import { QualityGate } from "../components/QualityGate";
 import { ApprovalPanel } from "../components/ApprovalPanel";
 import { AssuranceLadder } from "../components/AssuranceLadder";
 import { Kpi } from "../components/Kpi";
+import { ReplyInbox } from "../components/ReplyInbox";
 import { useOpsSocket } from "../lib/useOpsSocket";
-import { saidLabel, viaLabel } from "../lib/replies";
 
 function cfgInt(cfg: PublicConfig | null, key: string): number | null {
   const value = cfg?.[key];
@@ -250,6 +250,10 @@ export function AlertDetail({
         )}
       </section>
 
+      {alert.lifecycle_status === "active" || replies.length > 0 ? (
+        <ReplyInbox rows={replies} cfg={cfg} />
+      ) : null}
+
       <div className="detail__cols">
         <div className="detail__col">
           <div className="panel detail__box">
@@ -332,28 +336,6 @@ export function AlertDetail({
         </div>
 
         <div className="detail__col">
-          <div className="panel detail__box">
-            <h3>{t("alert.replies")}</h3>
-            <p className="muted">{t("alert.repliesHint")}</p>
-            {replies.length === 0 ? (
-              <p className="muted">{t("alert.repliesEmpty")}</p>
-            ) : (
-              <div className="replies" role="list">
-                {replies.map((row) => (
-                  <div key={row.id} className="replies__row" role="listitem">
-                    <span className="replies__via">{viaLabel(t, row.channel_code)}</span>
-                    <span className="replies__said">
-                      {saidLabel(cfg, row.response_type, row.free_text)}
-                      <span className="replies__meta"> · {row.unit_name}</span>
-                    </span>
-                    <time className="mono muted" dateTime={row.received_at}>
-                      {new Date(row.received_at).toLocaleTimeString()}
-                    </time>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
           <div className="panel detail__box">
             <h3>{t("alert.proof")}</h3>
             {deliveries.length === 0 && (
