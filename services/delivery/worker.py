@@ -227,7 +227,17 @@ async def _send_one_delivery(
             simulated = False
             try:
                 result = await adapter.send(message)
-            except ChannelUnavailable:
+            except ChannelUnavailable as exc:
+                if exc.code == "device_unregistered":
+                    # Real FCM rejection: the token is dead. Simulating a push
+                    # would badge this as delivered when the phone got nothing.
+                    await transition(conn, delivery_id, State.failed, reason=exc.code)
+                    await _after_failure(
+                        conn, redis, delivery_id,
+                        alert_id=alert_id, recipient_id=recipient_id,
+                        reason=exc.code,
+                    )
+                    return
                 # The channel structurally cannot serve this recipient (no push
                 # token, number not verified on the trial, no credentials). That
                 # is §8.5's simulated-carrier case, not a transient fault, so it
@@ -339,7 +349,10 @@ async def worker_loop(consumer: str, shutdown: asyncio.Event | None = None) -> N
                         await process_batch(conn, redis, fields)
                     await redis.xack(keys.stream_delivery(), keys.group(), msg_id)
                 except Exception:
-                    logger.exception("batch_failed", msg_id=msg_id)
+                    try:
+                        logger.exception("batch_failed", msg_id=msg_id)
+                    except Exception:
+                        print(f"batch_failed msg_id={msg_id}", flush=True)
 
 
 def main() -> None:

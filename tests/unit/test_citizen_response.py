@@ -123,3 +123,31 @@ async def test_dtmf_safe_writes_response(db_conn, delivery_row):
     assert result is not None
     assert result["response_type"] == "safe"
     assert result["assistance_case_id"] is None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_officer_sees_ivr_reply_on_the_alert(db_conn, delivery_row):
+    from httpx import ASGITransport, AsyncClient
+
+    from services.api.auth import Principal, issue_access_token
+    from services.api.main import app
+    from services.api.rbac import OFFICER
+
+    digit = await config_repo.get_str(db_conn, "ivr.dtmf.safe")
+    await record_from_dtmf(db_conn, delivery_row["id"], digit)
+    token, _ = await issue_access_token(
+        db_conn,
+        Principal(user_id=1, email="officer.a@setu.example", role=OFFICER, unit_scope_id=None),
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get(
+            f"/api/v1/alerts/{delivery_row['alert_id']}/responses",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body
+    assert body[0]["response_type"] == "safe"
+    assert body[0]["channel_code"]

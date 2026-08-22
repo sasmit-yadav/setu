@@ -248,6 +248,29 @@ kbd {
 
 /* ── assurance ladder (WhatsApp ticks + Stripe timeline) ──────────── */
 .ladders { display: flex; flex-direction: column; gap: var(--s3); }
+.replies { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
+.replies__row {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr) auto;
+  gap: var(--s2);
+  align-items: start;
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+}
+.replies__via { font-weight: 600; }
+.replies__said { min-width: 0; }
+.replies__row--btn {
+  width: 100%;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.replies-live { margin: var(--s4) 0; }
 .ladder { border: 1px solid var(--border-subtle); background: var(--bg-base); }
 .ladder__head {
   display: flex;

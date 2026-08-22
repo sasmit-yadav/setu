@@ -239,6 +239,16 @@ class DeliveryRowOut(BaseModel):
     assurance_level: int
 
 
+class CitizenReplyOut(BaseModel):
+    id: int
+    channel_code: str
+    response_type: str
+    free_text: str | None
+    unit_name: str
+    received_at: str
+    assistance_case_id: int | None
+
+
 class UnitRiskOut(BaseModel):
     unit_id: int
     alert_id: int | None

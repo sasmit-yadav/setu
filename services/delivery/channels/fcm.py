@@ -77,7 +77,14 @@ class FcmAdapter:
             token=msg.address,
             webpush=messaging.WebpushConfig(headers={"Urgency": "high"}),
         )
-        provider_ref = await asyncio.to_thread(messaging.send, message)
+        try:
+            provider_ref = await asyncio.to_thread(messaging.send, message)
+        except Exception as exc:
+            # Stale PWA token (UnregisteredError) must not crash the worker.
+            # It is a dead address, not a retryable carrier blip.
+            if type(exc).__name__ in {"UnregisteredError", "SenderIdMismatchError"}:
+                raise ChannelUnavailable("device_unregistered") from exc
+            raise
         await record(
             self._conn,
             msg.delivery_id,

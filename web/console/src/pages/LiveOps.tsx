@@ -15,6 +15,7 @@ import { ProvenanceChip } from "../components/ProvenanceChip";
 import { Kpi } from "../components/Kpi";
 import { LiveMap } from "../components/LiveMap";
 import { useOpsSocket } from "../lib/useOpsSocket";
+import { saidLabel, viaLabel } from "../lib/replies";
 
 function relative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -100,6 +101,7 @@ export function LiveOps({
   });
 
   const tileSource = String(cfg?.["map.tile_source"] ?? map?.tile_source ?? "");
+  const citizenReplies = feed.filter((item) => item.event_type === "citizen_response");
 
   return (
     <div className="screen screen--wide">
@@ -197,6 +199,33 @@ export function LiveOps({
         </section>
       )}
 
+      <section className="panel replies-live" aria-label={t("live.repliesTitle")}>
+        <p className="screen__kicker">{t("live.repliesTitle")}</p>
+        {citizenReplies.length === 0 ? (
+          <p className="muted">{t("live.repliesEmpty")}</p>
+        ) : (
+          <div className="replies" role="list">
+            {citizenReplies.map((item) => (
+              <button
+                key={`${item.delivery_id}-${item.occurred_at}`}
+                type="button"
+                className="replies__row replies__row--btn"
+                onClick={() => onOpen(item.alert_id)}
+              >
+                {item.severity ? <SeverityBadge severity={item.severity} /> : null}
+                <span className="replies__via">{viaLabel(t, item.channel_code)}</span>
+                <span className="replies__said">
+                  {item.response_type
+                    ? saidLabel(cfg, item.response_type, item.free_text)
+                    : lookup(t, "feed", item.event_type)}
+                  <span className="replies__meta"> · {item.headline}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
       {tileSource !== "pmtiles_local" && (
         <p className="muted" role="status">
           {t("live.basemapNote")}
@@ -281,7 +310,12 @@ export function LiveOps({
                   <span className="live-feed__body">
                     <span className="live-feed__verb">{lookup(t, "feed", item.event_type)}</span>
                     <span className="live-feed__head" title={item.headline}>{item.headline}</span>
-                    <span className="live-feed__meta muted">{lookup(t, "channel", item.channel_code)}</span>
+                    <span className="live-feed__meta muted">
+                      {viaLabel(t, item.channel_code)}
+                      {item.event_type === "citizen_response" && item.response_type
+                        ? ` · ${saidLabel(cfg, item.response_type, item.free_text)}`
+                        : ""}
+                    </span>
                   </span>
                 </button>
               </li>

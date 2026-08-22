@@ -252,12 +252,19 @@ async def ops_feed(
     rows = await conn.fetch(
         """
         SELECT de.occurred_at, de.event_type, d.id AS delivery_id,
-               a.id AS alert_id, a.headline, c.code AS channel_code,
-               d.simulated
+               a.id AS alert_id, a.headline, a.severity, c.code AS channel_code,
+               d.simulated, cr.response_type, cr.free_text
         FROM delivery_event de
         JOIN delivery d ON d.id = de.delivery_id
         JOIN alert a ON a.id = d.alert_id
         JOIN channel c ON c.id = d.channel_id
+        LEFT JOIN LATERAL (
+            SELECT response_type, free_text
+            FROM citizen_response
+            WHERE delivery_id = d.id
+            ORDER BY received_at DESC, id DESC
+            LIMIT 1
+        ) cr ON de.event_type = 'citizen_response'
         WHERE de.event_type IN (
             'acknowledged', 'device_delivered', 'citizen_response', 'notification_opened'
         )
@@ -273,8 +280,11 @@ async def ops_feed(
             "delivery_id": row["delivery_id"],
             "alert_id": row["alert_id"],
             "headline": row["headline"],
+            "severity": row["severity"],
             "channel_code": row["channel_code"],
             "simulated": bool(row["simulated"]),
+            "response_type": row["response_type"],
+            "free_text": row["free_text"],
         }
         for row in rows
     ]

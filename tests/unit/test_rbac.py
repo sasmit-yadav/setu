@@ -620,6 +620,7 @@ async def test_deliveries_assurance_audit_pdf_roles(client, db_conn, role, expec
     for path in (
         "/api/v1/alerts/99999999/deliveries",
         "/api/v1/alerts/99999999/assurance",
+        "/api/v1/alerts/99999999/responses",
         "/api/v1/alerts/99999999/audit",
         "/api/v1/alerts/99999999/report.pdf",
     ):

@@ -20,6 +20,7 @@ from services.api.schemas import (
     ApproveRequest,
     ApproveResponse,
     AssuranceOut,
+    CitizenReplyOut,
     CreateAlertRequest,
     CreateAlertResponse,
     DeliveryRowOut,
@@ -410,6 +411,44 @@ async def new_version(
         version_number=int(version_number),
         supersedes_alert_id=alert_id,
     )
+
+
+@router.get("/{alert_id}/responses", response_model=list[CitizenReplyOut])
+async def alert_responses(
+    alert_id: int,
+    conn: asyncpg.Connection = Depends(get_conn),
+    principal: Principal = Depends(require_operational_read),
+) -> list[CitizenReplyOut]:
+    exists = await conn.fetchval("SELECT 1 FROM alert WHERE id = $1", alert_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="alert_not_found")
+    await assert_alert_in_scope(conn, principal, alert_id)
+    rows = await conn.fetch(
+        """
+        SELECT cr.id, c.code AS channel_code, cr.response_type, cr.free_text,
+               u.name AS unit_name, cr.received_at, ac.id AS assistance_case_id
+        FROM citizen_response cr
+        JOIN delivery d ON d.id = cr.delivery_id
+        JOIN channel c ON c.id = d.channel_id
+        JOIN admin_unit u ON u.id = cr.unit_id
+        LEFT JOIN assistance_case ac ON ac.citizen_response_id = cr.id
+        WHERE cr.alert_id = $1
+        ORDER BY cr.received_at DESC, cr.id DESC
+        """,
+        alert_id,
+    )
+    return [
+        CitizenReplyOut(
+            id=int(row["id"]),
+            channel_code=str(row["channel_code"]),
+            response_type=str(row["response_type"]),
+            free_text=row["free_text"],
+            unit_name=str(row["unit_name"]),
+            received_at=row["received_at"].isoformat(),
+            assistance_case_id=int(row["assistance_case_id"]) if row["assistance_case_id"] else None,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/{alert_id}/assurance", response_model=AssuranceOut)

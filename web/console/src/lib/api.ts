@@ -232,6 +232,16 @@ export interface DeliveryRow {
   assurance_level: number;
 }
 
+export interface CitizenReply {
+  id: number;
+  channel_code: string;
+  response_type: string;
+  free_text: string | null;
+  unit_name: string;
+  received_at: string;
+  assistance_case_id: number | null;
+}
+
 export interface AssistanceCase {
   id: number;
   citizen_response_id: number | null;
@@ -377,8 +387,11 @@ export interface OpsFeedItem {
   delivery_id: number;
   alert_id: number;
   headline: string;
+  severity?: string;
   channel_code: string;
   simulated: boolean;
+  response_type?: string | null;
+  free_text?: string | null;
 }
 
 export interface AfterActionRec {
@@ -459,6 +472,8 @@ export const endpoints = {
     `/api/v1/alerts/${id}/dispatch`,
   ),
   assurance: (id: number) => api.get<AssuranceResponse>(`/api/v1/alerts/${id}/assurance`),
+  alertResponses: (id: number) =>
+    api.get<CitizenReply[]>(`/api/v1/alerts/${id}/responses`),
   deliveries: (id: number) =>
     api.get<DeliveryRow[]>(`/api/v1/alerts/${id}/deliveries`),
   assistance: (status = "all") =>

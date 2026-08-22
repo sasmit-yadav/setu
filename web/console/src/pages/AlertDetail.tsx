@@ -5,6 +5,7 @@ import {
   endpoints,
   type AlertDetail as AlertDetailT,
   type AssuranceResponse,
+  type CitizenReply,
   type PublicConfig,
   type ValidateResponse,
 } from "../lib/api";
@@ -14,6 +15,8 @@ import { QualityGate } from "../components/QualityGate";
 import { ApprovalPanel } from "../components/ApprovalPanel";
 import { AssuranceLadder } from "../components/AssuranceLadder";
 import { Kpi } from "../components/Kpi";
+import { useOpsSocket } from "../lib/useOpsSocket";
+import { saidLabel, viaLabel } from "../lib/replies";
 
 function cfgInt(cfg: PublicConfig | null, key: string): number | null {
   const value = cfg?.[key];
@@ -35,6 +38,7 @@ export function AlertDetail({
   const [alert, setAlert] = useState<AlertDetailT | null>(null);
   const [gate, setGate] = useState<ValidateResponse | null>(null);
   const [assurance, setAssurance] = useState<AssuranceResponse | null>(null);
+  const [replies, setReplies] = useState<CitizenReply[]>([]);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [approvals, setApprovals] = useState<{ have: number; need: number } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -44,20 +48,23 @@ export function AlertDetail({
   const [nextSeverity, setNextSeverity] = useState("");
 
   const refresh = useCallback(async () => {
-    const [a, s, publicCfg] = await Promise.all([
+    const [a, s, publicCfg, nextReplies] = await Promise.all([
       endpoints.alert(id),
       endpoints.assurance(id),
       endpoints.publicConfig(),
+      endpoints.alertResponses(id).catch(() => [] as CitizenReply[]),
     ]);
     setAlert(a);
     setAssurance(s);
     setCfg(publicCfg);
+    setReplies(nextReplies);
     setApprovals({ have: a.approval_have, need: a.approval_need });
   }, [id]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useOpsSocket(() => void refresh());
 
   async function runGate() {
     setBusy("gate");
@@ -325,6 +332,28 @@ export function AlertDetail({
         </div>
 
         <div className="detail__col">
+          <div className="panel detail__box">
+            <h3>{t("alert.replies")}</h3>
+            <p className="muted">{t("alert.repliesHint")}</p>
+            {replies.length === 0 ? (
+              <p className="muted">{t("alert.repliesEmpty")}</p>
+            ) : (
+              <div className="replies" role="list">
+                {replies.map((row) => (
+                  <div key={row.id} className="replies__row" role="listitem">
+                    <span className="replies__via">{viaLabel(t, row.channel_code)}</span>
+                    <span className="replies__said">
+                      {saidLabel(cfg, row.response_type, row.free_text)}
+                      <span className="replies__meta"> · {row.unit_name}</span>
+                    </span>
+                    <time className="mono muted" dateTime={row.received_at}>
+                      {new Date(row.received_at).toLocaleTimeString()}
+                    </time>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="panel detail__box">
             <h3>{t("alert.proof")}</h3>
             {deliveries.length === 0 && (
