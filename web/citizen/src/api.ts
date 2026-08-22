@@ -122,6 +122,32 @@ async function parseJson(res: Response) {
   return res.json();
 }
 
+export async function requestCitizenOtp(phone: string) {
+  const res = await fetch(`${API_BASE}/api/v1/auth/citizen/otp/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+  });
+  if (res.status === 204) return;
+  await parseJson(res);
+}
+
+export async function verifyCitizenOtp(phone: string, code: string) {
+  const res = await fetch(`${API_BASE}/api/v1/auth/citizen/otp/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code }),
+  });
+  const data = (await parseJson(res)) as {
+    access_token: string;
+    refresh_token: string;
+    role: string;
+    email: string;
+  };
+  setCitizenSession(data.access_token, data.refresh_token);
+  return data;
+}
+
 export async function loginCitizen(email: string, password: string) {
   const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
     method: "POST",

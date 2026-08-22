@@ -218,6 +218,26 @@ def api() -> None:
     must([PY, "-m", "uvicorn", "services.api.main:app", "--reload", "--port", "8000"])
 
 
+@task("API on :8000 against the DEPLOYED Neon + Upstash (.env.cloud)")
+def api_cloud() -> None:
+    """Same data plane as worker-cloud. Use this when Send must run the
+    laptop's current code (SMS-on-moderate, etc.) instead of the stale
+    Render box."""
+    cloud = ROOT / ".env.cloud"
+    if not cloud.exists():
+        print("Missing .env.cloud — refusing to fall back to .env.", file=sys.stderr)
+        sys.exit(1)
+    env = os.environ.copy()
+    env.update(_parse_env_file(cloud))
+    env["HF_SPACE_URL"] = _ml_url_for_laptop(env.get("HF_SPACE_URL", ""))
+    target = env.get("DATABASE_URL_DIRECT", "").split("@")[-1].split("/")[0]
+    print(f"api -> db {target} | :8000")
+    must(
+        [PY, "-m", "uvicorn", "services.api.main:app", "--reload", "--port", "8000"],
+        env=env,
+    )
+
+
 @task("Delivery worker (Redis Streams consumer)")
 def worker() -> None:
     load_env()
@@ -278,7 +298,16 @@ def citizen_dev() -> None:
     citizen_dir = ROOT / "web" / "citizen"
     if not (citizen_dir / "node_modules").exists():
         must(["npm", "install"], cwd=citizen_dir)
-    must(["npm", "run", "dev", "--", "--port", "5174"], cwd=citizen_dir)
+    env = os.environ.copy()
+    # Unset baked-in Render URLs. Empty VITE_API_BASE uses the Vite /api proxy
+    # to :8000, so a phone on a tunnel still talks to this laptop's API.
+    env["VITE_API_BASE"] = env.get("VITE_API_BASE", "")
+    print("citizen -> API proxy /api -> http://127.0.0.1:8000 | :5174")
+    must(
+        ["npm", "run", "dev", "--", "--host", "--port", "5174"],
+        cwd=citizen_dir,
+        env=env,
+    )
 
 
 @task("Re-run geometry loaders against Neon (.env.neon)")

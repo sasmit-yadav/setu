@@ -52,6 +52,7 @@ async def public_config(conn: asyncpg.Connection = Depends(get_conn)) -> dict[st
         "relay.peer_char_uuid",
         "translation.fallback_notice",
         "demo.citizen_email",
+        "demo.citizen_phone",
     ]
     rows = await conn.fetch(
         """
@@ -62,14 +63,19 @@ async def public_config(conn: asyncpg.Connection = Depends(get_conn)) -> dict[st
     )
     out: dict[str, str | int | float] = {}
     for row in rows:
+        key = str(row["key"])
         value = row["value"]
+        # Phone numbers are digit strings; int() would drop a leading 0.
+        if key.endswith("_phone") or key.endswith("_otp"):
+            out[key] = value
+            continue
         try:
-            out[row["key"]] = int(value)
+            out[key] = int(value)
         except ValueError:
             try:
-                out[row["key"]] = float(value)
+                out[key] = float(value)
             except ValueError:
-                out[row["key"]] = value
+                out[key] = value
     # Firebase web config is per-environment infra, not business policy, so it
     # comes from settings/env rather than app_config (§ same reasoning as
     # hf_space_url). Omitted entirely when unset, so the PWA's own check for

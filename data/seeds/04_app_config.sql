@@ -93,7 +93,10 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('api.rate_limit_dispatch',         '5',     'req/min',    'Tighter on /dispatch'),
   ('jwt.access_ttl_minutes',          '15',    'minutes',    'Access tokens are stateless and therefore CANNOT be revoked — this ttl is the revocation window. Kept short deliberately; the refresh flow makes it invisible to users.'),
   ('jwt.refresh_ttl_days',            '7',     'days',       'Refresh sessions are stored server-side and rotated on every use, so they CAN be revoked. Presenting an already-used token revokes the whole family (theft detection).'),
-  ('auth.bcrypt_rounds',              '12',    'rounds',     'bcrypt work factor for NEW password hashes. 12 is the common present-day floor; raise it as hardware improves. Stored hashes carry their own cost, so raising this does not invalidate existing passwords.');
+  ('auth.bcrypt_rounds',              '12',    'rounds',     'bcrypt work factor for NEW password hashes. 12 is the common present-day floor; raise it as hardware improves. Stored hashes carry their own cost, so raising this does not invalidate existing passwords.'),
+  ('auth.citizen_otp_ttl_seconds',    '300',   'seconds',    'Citizen login OTP lifetime. Short because the code is a bearer credential.'),
+  ('auth.citizen_otp_resend_seconds', '45',    'seconds',    'Minimum gap before a new OTP replaces the previous one for the same number.'),
+  ('auth.citizen_otp_max_attempts',   '5',     'tries',      'Wrong codes after this many tries burn the challenge. Request a new one.');
 
 -- ═══ F3 Dual Authorization (Rule 12) ═══
 INSERT INTO app_config (key, value, unit, note) VALUES
@@ -173,6 +176,7 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('ivr.dtmf.medical', '2', 'digit', 'Assistance submenu: medical'),
   ('ivr.dtmf.unable_to_evacuate', '3', 'digit', 'Assistance submenu: unable to evacuate'),
   ('ivr.prompt.main', 'Press {safe} if you are safe. Press {need_help} if you need help.', 'string', 'IVR Gather prompt'),
+  ('ivr.prompt.thanks', 'Thank you. SETU has recorded your response.', 'string', 'Spoken after a DTMF key so Twilio receives TwiML, not an empty 204'),
   ('severity.rank.extreme',  '1.0',  'score', 'Shared severity ranking, used by priority and elsewhere'),
   ('severity.rank.severe',   '0.75', 'score', 'Shared severity ranking, used by priority and elsewhere'),
   ('severity.rank.moderate', '0.5',  'score', 'Shared severity ranking, used by priority and elsewhere'),
@@ -239,6 +243,13 @@ INSERT INTO app_config (key, value, unit, note) VALUES
 INSERT INTO app_config (key, value, unit, note) VALUES
   ('enrollment.sms_keyword_register', 'REGISTER', 'string', 'Inbound keyword; case-insensitive'),
   ('enrollment.sms_keyword_stop',     'STOP',     'string', 'Opt-out. Honoured immediately and permanently, TRAI-aligned'),
+  ('response.sms_keyword.safe', 'SAFE', 'string', 'Inbound SMS: same meaning as the PWA I am safe button'),
+  ('response.sms_keyword.help', 'HELP', 'string', 'Inbound SMS: same meaning as I need help'),
+  ('response.sms_reply.safe', 'SETU: Marked safe. Thank you.', 'string', 'Auto-reply after SAFE'),
+  ('response.sms_reply.help', 'SETU: Help request received. Teams will be notified.', 'string', 'Auto-reply after HELP'),
+  ('response.sms_reply.no_alert', 'SETU: No live warning for this number.', 'string', 'Auto-reply when SAFE/HELP has no active delivery'),
+  ('response.sms_reply.hint', 'SETU: Reply SAFE if you are safe. Reply HELP if you need help.', 'string', 'Auto-reply for an unrecognised inbound word'),
+  ('response.sms_footer', 'Reply SAFE if you are safe. Reply HELP if you need help.', 'string', 'Appended to every outbound warning SMS'),
   ('enrollment.csv_max_rows',         '5000',     'rows',   'Per-import cap'),
   ('enrollment.csv_require_dry_run',  'true',     'bool',   'A destructive bulk write must be previewed first'),
   ('enrollment.phone_local_digits',   '10',       'digits', 'National significant number length without country code'),
@@ -261,7 +272,11 @@ INSERT INTO app_config (key, value, unit, note) VALUES
 
 INSERT INTO app_config (key, value, unit, note) VALUES
   ('demo.citizen_email', 'citizen@setu.example', 'email',
-     'PWA sign-in prefill only — never a password. Public config.'),
+     'PWA email-fallback prefill only — never a password. Public config.'),
+  ('demo.citizen_phone', '9000000000', 'phone',
+     'PWA phone-login prefill. Public config. Maps to the Muttil North citizen account.'),
+  ('demo.citizen_otp', '246810', 'otp',
+     'Accepted only when Twilio is unset, and only for demo.citizen_phone. Not public config.'),
   ('demo.password_emails', 'officer.a@setu.example,officer.b@setu.example,state.admin@setu.example,auditor@setu.example,relay.node@setu.example,citizen@setu.example', 'csv',
      'Accounts that receive SETU_DEMO_PASSWORD at provision time. Hash only; password stays in .env.'),
   ('demo.unit_scope.officer.a@setu.example', 'Vythiri', 'name',

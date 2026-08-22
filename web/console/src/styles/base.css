@@ -142,6 +142,7 @@ button {
   color: var(--text-secondary);
   background: transparent;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chip--sim     { border-color: var(--state-neutral); color: var(--state-neutral); }

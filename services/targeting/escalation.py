@@ -156,19 +156,26 @@ async def resolve_channels_for_recipients(
     for rid in recipient_ids:
         unit_id = units.get(rid)
         score = risks.get(unit_id, 0.0) if unit_id is not None else 0.0
-        primary_id = _channel_from_steps(steps, score)
-        primary_code = channel_codes.get(primary_id)
-        if primary_code in AREA_CHANNELS:
-            resolved[rid] = (primary_id, False)
-            continue
-        address_column = CHANNEL_ADDRESS_COLUMN.get(primary_code or "")
-        if address_column is None:
-            resolved[rid] = (primary_id, False)
-            continue
-        if address_flags[address_column].get(rid, False):
-            resolved[rid] = (primary_id, False)
-        elif simulate_fallback and sim_id is not None:
-            resolved[rid] = (int(sim_id), True)
-        else:
-            resolved[rid] = (primary_id, False)
+        chosen: tuple[int, bool] | None = None
+        for step in steps:
+            threshold = step["applies_if_reach_risk_gte"]
+            if threshold is not None and score < float(threshold):
+                continue
+            channel_id = int(step["channel_id"])
+            code = channel_codes.get(channel_id)
+            if code in AREA_CHANNELS:
+                chosen = (channel_id, False)
+                break
+            address_column = CHANNEL_ADDRESS_COLUMN.get(code or "")
+            if address_column is None:
+                chosen = (channel_id, False)
+                break
+            if address_flags[address_column].get(rid, False):
+                chosen = (channel_id, False)
+                break
+        if chosen is None and simulate_fallback and sim_id is not None:
+            chosen = (int(sim_id), True)
+        elif chosen is None:
+            chosen = (_channel_from_steps(steps, score), False)
+        resolved[rid] = chosen
     return resolved

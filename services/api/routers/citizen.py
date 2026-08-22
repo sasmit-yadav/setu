@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from services.api import config_repo
 from services.api.auth import Principal
+from services.api.citizen_otp import recipient_id_for_principal
 from services.api.deps import get_conn
 from services.api.rbac import assert_delivery_in_scope, require_citizen_write
 from services.api.schemas import DeviceRegisterRequest, DeviceRegisterResponse
@@ -95,17 +96,30 @@ async def list_citizen_deliveries(
         return []
     village_lang = await lang_for_unit(conn, principal.unit_scope_id)
     cap = await config_repo.get_int(conn, "api.list_default_limit")
-    rows = await conn.fetch(
-        _DELIVERY_SELECT
-        + """
-        WHERE r.unit_id = $1 AND a.lifecycle_status = 'active'
-        ORDER BY (r.kind = 'citizen_pwa') DESC,
-                 a.effective_at DESC NULLS LAST, d.id DESC
-        LIMIT $2
-        """,
-        principal.unit_scope_id,
-        cap,
-    )
+    own_id = await recipient_id_for_principal(conn, principal)
+    if own_id is not None:
+        rows = await conn.fetch(
+            _DELIVERY_SELECT
+            + """
+            WHERE r.id = $1 AND a.lifecycle_status = 'active'
+            ORDER BY a.effective_at DESC NULLS LAST, d.id DESC
+            LIMIT $2
+            """,
+            own_id,
+            cap,
+        )
+    else:
+        rows = await conn.fetch(
+            _DELIVERY_SELECT
+            + """
+            WHERE r.unit_id = $1 AND a.lifecycle_status = 'active'
+            ORDER BY (r.kind = 'citizen_pwa') DESC,
+                     a.effective_at DESC NULLS LAST, d.id DESC
+            LIMIT $2
+            """,
+            principal.unit_scope_id,
+            cap,
+        )
     seen: set[int] = set()
     out: list[CitizenDeliveryOut] = []
     for row in rows:
@@ -142,16 +156,31 @@ async def register_device(
 ) -> DeviceRegisterResponse:
     """Called once the PWA has a real FCM token (getToken() succeeded).
 
-    There is no app_user -> recipient link in the schema — recipients are
-    populated by CSV import or SMS keyword, never by login. The citizen's
-    unit_scope_id (assigned at provision time, same field officers use for
-    geographic RBAC) is the only identity a citizen session carries, so it is
-    what ties a browser to a recipient row: one 'citizen_pwa' recipient per
-    unit, created on first registration and updated on every later one.
+    Phone-OTP sessions bind the token onto that SIM's recipient row so the
+    next Send can FCM *that* person. Email / officer sessions still upsert
+    the one 'citizen_pwa' row per village.
     """
     if principal.unit_scope_id is None:
         raise HTTPException(status_code=400, detail="no_unit_scope_for_citizen")
     preferred = await lang_for_unit(conn, principal.unit_scope_id)
+    own_id = await recipient_id_for_principal(conn, principal)
+    if own_id is not None:
+        row = await conn.fetchrow(
+            """
+            UPDATE recipient
+            SET push_token = $2,
+                consented_at = COALESCE(consented_at, now()),
+                preferred_lang = COALESCE($3, preferred_lang)
+            WHERE id = $1
+            RETURNING id, unit_id
+            """,
+            own_id,
+            body.push_token,
+            preferred,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="recipient_not_found")
+        return DeviceRegisterResponse(recipient_id=row["id"], unit_id=row["unit_id"])
     row = await conn.fetchrow(
         """
         INSERT INTO recipient (

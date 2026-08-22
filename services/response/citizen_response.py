@@ -226,7 +226,13 @@ async def record_from_dtmf(
     elif token == evac_digit:
         response_type = "unable_to_evacuate"
     elif token == need_help_digit:
-        return None
+        return await submit_response(
+            conn,
+            delivery_id=delivery_id,
+            response_type="other",
+            idempotency_key=f"dtmf-{delivery_id}-{token}",
+            free_text="IVR: need help",
+        )
     else:
         free_text_types = await config_repo.get_csv(conn, "response.free_text_types")
         if not free_text_types:

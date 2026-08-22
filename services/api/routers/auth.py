@@ -1,11 +1,13 @@
-"""POST /api/v1/auth/login · /refresh · /logout · GET /me
+"""POST /api/v1/auth/login · /citizen/otp/* · /refresh · /logout · GET /me
 
-Deliberately NOT included: any self-registration endpoint. Officer, state_admin,
-auditor and relay_node accounts are provisioned by an administrator
-(data/seeds/06_app_users.sql + scripts/set_password.py), never self-served — an
-open sign-up on a system that can order an evacuation would be indefensible.
-Citizen enrollment is a separate, consent-gated flow (E4) that creates
-`recipient` rows, not `app_user` logins.
+Officer, state_admin, auditor and relay_node accounts are provisioned by an
+administrator (data/seeds/06_app_users.sql + scripts/set_password.py), never
+self-served — an open sign-up on a system that can order an evacuation would
+be indefensible.
+
+Citizens sign in with a mobile number and OTP (POST /citizen/otp/request +
+/verify). That is a login, not enrollment: a recipient row must already exist
+(or the seeded demo number) before a session is issued.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from services.api.auth import (
     revoke_refresh_token,
     rotate_refresh_token,
 )
+from services.api.citizen_otp import request_otp, verify_otp
 from services.api.deps import get_conn
 from services.api.rbac import current_principal
 
@@ -46,6 +49,15 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=512)
+
+
+class CitizenOtpRequest(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+
+
+class CitizenOtpVerify(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+    code: str = Field(min_length=4, max_length=8)
 
 
 class MeResponse(BaseModel):
@@ -79,6 +91,43 @@ async def login(
 ) -> TokenResponse:
     try:
         principal = await authenticate(conn, body.email, body.password)
+        access, expires_in = await issue_access_token(conn, principal)
+        refresh = await issue_refresh_token(conn, principal.user_id, user_agent=user_agent)
+    except AuthError as exc:
+        raise _auth_failure(exc) from exc
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=expires_in,
+        role=principal.role,
+        email=principal.email,
+    )
+
+
+@router.post("/citizen/otp/request", status_code=status.HTTP_204_NO_CONTENT)
+async def citizen_otp_request(body: CitizenOtpRequest, conn=Depends(get_conn)) -> Response:
+    """Always 204. Missing Twilio, unknown numbers, and opted-out SIMs
+    look the same so this is not an enumeration oracle."""
+    try:
+        await request_otp(conn, body.phone)
+    except (RuntimeError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "auth_unavailable", "code": "otp_not_configured"},
+        ) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/citizen/otp/verify", response_model=TokenResponse)
+async def citizen_otp_verify(
+    body: CitizenOtpVerify,
+    user_agent: str | None = Header(default=None),
+    conn=Depends(get_conn),
+) -> TokenResponse:
+    try:
+        principal = await verify_otp(conn, body.phone, body.code)
+        if principal.role != "citizen":
+            raise AuthError()
         access, expires_in = await issue_access_token(conn, principal)
         refresh = await issue_refresh_token(conn, principal.user_id, user_agent=user_agent)
     except AuthError as exc:

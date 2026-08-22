@@ -173,8 +173,18 @@ export function AlertDetail({
   const reachedFloor = cfgInt(cfg, "reachability.reached_tier_floor");
   const ackedFloor = cfgInt(cfg, "reachability.acknowledged_tier_floor");
   const extraLadders = cfgInt(cfg, "ui.ladder_extra_sample") ?? 0;
-  const reached = reachedFloor == null ? 0 : deliveries.filter((d) => d.assurance_level >= reachedFloor).length;
-  const acked = ackedFloor == null ? 0 : deliveries.filter((d) => d.assurance_level >= ackedFloor).length;
+  const reached =
+    reachedFloor == null
+      ? 0
+      : deliveries.filter((d) => !d.simulated && d.assurance_level >= reachedFloor).length;
+  const acked =
+    ackedFloor == null
+      ? 0
+      : deliveries.filter(
+          (d) =>
+            (!d.simulated && d.assurance_level >= ackedFloor) ||
+            d.rungs.some((r) => r.event_type === "citizen_response" && r.status === "recorded"),
+        ).length;
 
   const sample = (() => {
     const seen = new Set<string>();
@@ -276,7 +286,7 @@ export function AlertDetail({
             )}
             {approvalsShort && (
               <p className="danger detail__why">
-                {t("approval.short", { have, need })}
+                {t(need > 1 ? "approval.shortNeedOther" : "approval.short", { have, need })}
               </p>
             )}
             {notice && (

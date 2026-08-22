@@ -37,12 +37,14 @@ UNION ALL SELECT 'severe', 2, id, 120, 1.5, 8000, 2, NULL::NUMERIC FROM channel 
 UNION ALL SELECT 'severe', 3, id, 300, 1.0, 0,    1, NULL::NUMERIC FROM channel WHERE code = 'email'
 UNION ALL SELECT 'severe', 4, id, 300, 1.0, 0,    1, NULL::NUMERIC FROM channel WHERE code = 'human_relay';
 
--- MODERATE: push + email only, no SMS spend, no relay (a human's time is the most expensive channel)
+-- MODERATE: push first, then SMS for people with a number and no token.
+-- Email last. No human relay — that wait is for severe/extreme.
 INSERT INTO escalation_policy
   (severity, step_order, channel_id, wait_before_next_s, backoff_multiplier, jitter_ms,
    max_attempts, applies_if_reach_risk_gte)
 SELECT 'moderate', 1, id, 300, 1.5, 10000, 2, NULL::NUMERIC FROM channel WHERE code = 'fcm'
-UNION ALL SELECT 'moderate', 2, id, 600, 1.0, 0,     1, NULL::NUMERIC FROM channel WHERE code = 'email';
+UNION ALL SELECT 'moderate', 2, id, 180, 1.5, 8000, 2, NULL::NUMERIC FROM channel WHERE code = 'sms'
+UNION ALL SELECT 'moderate', 3, id, 600, 1.0, 0,     1, NULL::NUMERIC FROM channel WHERE code = 'email';
 
 -- MINOR: single push, no escalation
 INSERT INTO escalation_policy

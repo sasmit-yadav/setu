@@ -278,9 +278,11 @@ export function LiveOps({
                   <time className="mono muted" dateTime={item.occurred_at}>
                     {relative(item.occurred_at)}
                   </time>
-                  <span className="live-feed__verb">{lookup(t, "feed", item.event_type)}</span>
-                  <span className="live-feed__head">{item.headline}</span>
-                  <span className="muted">{lookup(t, "channel", item.channel_code)}</span>
+                  <span className="live-feed__body">
+                    <span className="live-feed__verb">{lookup(t, "feed", item.event_type)}</span>
+                    <span className="live-feed__head" title={item.headline}>{item.headline}</span>
+                    <span className="live-feed__meta muted">{lookup(t, "channel", item.channel_code)}</span>
+                  </span>
                 </button>
               </li>
               );

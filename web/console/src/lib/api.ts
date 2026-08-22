@@ -5,14 +5,15 @@
  *
  * Token storage: sessionStorage, not localStorage. An operations console on a
  * shared DEOC machine should not leave a credential behind for the next
- * person who opens the browser; sessionStorage dies with the tab. The refresh
- * token is deliberately NOT persisted at all — losing it on reload costs one
- * login, and persisting a long-lived revocable credential in a place XSS can
- * read is a worse trade on a system that can order an evacuation.
+ * person who opens the browser; sessionStorage dies with the tab. Access
+ * tokens last 15 minutes; the refresh token lives in the same tab store so a
+ * reload or a long Write session can rotate instead of dying with
+ * missing_or_invalid_token.
  */
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 const ACCESS_KEY = "setu.console.access";
+const REFRESH_KEY = "setu.console.refresh";
 let memoryRefresh: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -49,6 +50,7 @@ export function setToken(token: string | null): void {
   if (token) sessionStorage.setItem(ACCESS_KEY, token);
   else {
     sessionStorage.removeItem(ACCESS_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
     memoryRefresh = null;
   }
 }
@@ -56,12 +58,18 @@ export function setToken(token: string | null): void {
 export function setSession(access: string, refresh: string): void {
   setToken(access);
   memoryRefresh = refresh;
+  sessionStorage.setItem(REFRESH_KEY, refresh);
+}
+
+function currentRefresh(): string | null {
+  return memoryRefresh ?? sessionStorage.getItem(REFRESH_KEY);
 }
 
 async function rotateRefresh(): Promise<boolean> {
-  if (!memoryRefresh) return false;
+  const stored = currentRefresh();
+  if (!stored) return false;
   if (refreshInFlight) return refreshInFlight;
-  const current = memoryRefresh;
+  const current = stored;
   refreshInFlight = (async () => {
     const res = await fetch(apiUrl("/api/v1/auth/refresh"), {
       method: "POST",
@@ -370,6 +378,7 @@ export interface OpsFeedItem {
   alert_id: number;
   headline: string;
   channel_code: string;
+  simulated: boolean;
 }
 
 export interface AfterActionRec {

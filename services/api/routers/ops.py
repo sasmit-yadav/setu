@@ -201,17 +201,31 @@ async def ops_summary(
              FROM delivery d
              JOIN alert a ON a.id = d.alert_id
             WHERE a.lifecycle_status = 'active'
+              AND NOT d.simulated
               AND assurance_level(d.id) >= $1) AS delivered,
           (SELECT COUNT(*)::int
              FROM delivery d
              JOIN alert a ON a.id = d.alert_id
             WHERE a.lifecycle_status = 'active'
-              AND assurance_level(d.id) >= $2) AS acknowledged,
+              AND (
+                    (NOT d.simulated AND assurance_level(d.id) >= $2)
+                 OR EXISTS (
+                      SELECT 1 FROM delivery_event de
+                      WHERE de.delivery_id = d.id
+                        AND de.event_type = 'citizen_response'
+                    )
+              )) AS acknowledged,
           (SELECT COUNT(DISTINCT u.id)::int
              FROM admin_unit u
              JOIN alert a ON a.lifecycle_status = 'active'
               AND ST_Intersects(u.geom, a.area)
-            WHERE NOT EXISTS (
+            WHERE u.level = (
+                    SELECT MAX(u2.level)
+                    FROM admin_unit u2
+                    JOIN alert a2 ON a2.lifecycle_status = 'active'
+                     AND ST_Intersects(u2.geom, a2.area)
+                  )
+              AND NOT EXISTS (
                 SELECT 1 FROM relay_node rn WHERE rn.unit_id = u.id AND rn.active
             )) AS at_risk
         """,
@@ -223,9 +237,9 @@ async def ops_summary(
         "delivered": int(row["delivered"] or 0),
         "acknowledged": int(row["acknowledged"] or 0),
         "at_risk": int(row["at_risk"] or 0),
-        "delivered_note": "of active-alert deliveries at or above the reached-tier floor",
-        "acknowledged_note": "of active-alert deliveries at or above the acknowledged-tier floor",
-        "at_risk_note": "units under an active alert with no registered last-resort relay node",
+        "delivered_note": "real phones and apps only",
+        "acknowledged_note": "someone replied on a real channel",
+        "at_risk_note": "village under the live warning, no runner",
     }
 
 
@@ -238,7 +252,8 @@ async def ops_feed(
     rows = await conn.fetch(
         """
         SELECT de.occurred_at, de.event_type, d.id AS delivery_id,
-               a.id AS alert_id, a.headline, c.code AS channel_code
+               a.id AS alert_id, a.headline, c.code AS channel_code,
+               d.simulated
         FROM delivery_event de
         JOIN delivery d ON d.id = de.delivery_id
         JOIN alert a ON a.id = d.alert_id
@@ -259,6 +274,7 @@ async def ops_feed(
             "alert_id": row["alert_id"],
             "headline": row["headline"],
             "channel_code": row["channel_code"],
+            "simulated": bool(row["simulated"]),
         }
         for row in rows
     ]

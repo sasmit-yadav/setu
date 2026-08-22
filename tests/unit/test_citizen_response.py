@@ -4,8 +4,9 @@ import uuid
 
 import pytest
 
+from services.api import config_repo
 from services.governance.versioning import create_new_version
-from services.response.citizen_response import ResponseError, submit_response
+from services.response.citizen_response import ResponseError, record_from_dtmf, submit_response
 
 
 @pytest.mark.integration
@@ -102,3 +103,23 @@ async def test_create_new_version_increments(db_conn):
     )
     assert version_number == 2
     assert supersedes == alert_id
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dtmf_need_help_writes_response(db_conn, delivery_row):
+    digit = await config_repo.get_str(db_conn, "ivr.dtmf.need_help")
+    result = await record_from_dtmf(db_conn, delivery_row["id"], digit)
+    assert result is not None
+    assert result["response_type"] == "other"
+    assert result["assistance_case_id"] is not None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dtmf_safe_writes_response(db_conn, delivery_row):
+    digit = await config_repo.get_str(db_conn, "ivr.dtmf.safe")
+    result = await record_from_dtmf(db_conn, delivery_row["id"], digit)
+    assert result is not None
+    assert result["response_type"] == "safe"
+    assert result["assistance_case_id"] is None

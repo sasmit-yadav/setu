@@ -42,7 +42,7 @@ class TwilioIvrAdapter:
     async def _twiml_url(self, delivery_id: int) -> str:
         gather_digits = await config_repo.get_str(self._conn, "ivr.gather_digits")
         gather_timeout = await config_repo.get_str(self._conn, "ivr.gather_timeout_s")
-        action = public_webhook_url("/api/v1/webhooks/ivr-status")
+        action = public_webhook_url(f"/api/v1/webhooks/ivr-status?delivery_id={delivery_id}")
         params = urlencode(
             {
                 "delivery_id": delivery_id,
@@ -56,7 +56,7 @@ class TwilioIvrAdapter:
     async def send(self, msg: OutboundMessage) -> SendResult:
         if self._client is None or not self._from:
             raise ChannelUnavailable("twilio_not_configured")
-        callback = public_webhook_url("/api/v1/webhooks/ivr-status")
+        callback = public_webhook_url(f"/api/v1/webhooks/ivr-status?delivery_id={msg.delivery_id}")
         twiml_url = await self._twiml_url(msg.delivery_id)
         result = await asyncio.to_thread(
             self._client.calls.create,

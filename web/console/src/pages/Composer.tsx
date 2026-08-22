@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ApiError,
   endpoints,
   type AlertSummary,
   type MapPayload,
@@ -25,6 +26,8 @@ export function Composer({
   const [map, setMap] = useState<MapPayload | null>(null);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [polygon, setPolygon] = useState<Record<string, unknown> | null>(null);
+  const [unitId, setUnitId] = useState<number | null>(null);
+  const [unitName, setUnitName] = useState<string | null>(null);
   const [severity, setSeverity] = useState("");
   const [headline, setHeadline] = useState("");
   const [body, setBody] = useState("");
@@ -63,19 +66,42 @@ export function Composer({
     setPolygon(geojson);
   }, []);
 
+  const onUnit = useCallback((id: number) => {
+    setUnitId(id);
+    const name = map?.units.features.find((f) => Number(f.properties?.unit_id) === id)
+      ?.properties?.name;
+    setUnitName(typeof name === "string" ? name : `#${id}`);
+  }, [map]);
+
+  function failText(err: unknown, fallback: string): string {
+    if (err instanceof ApiError) {
+      const d = err.detail;
+      if (typeof d === "string") return d;
+      if (d && typeof d === "object") {
+        const rec = d as Record<string, unknown>;
+        if (typeof rec.message === "string") return rec.message;
+        if (typeof rec.error === "string") return rec.error;
+      }
+      return err.message;
+    }
+    return err instanceof Error ? err.message : fallback;
+  }
+
   async function createDraft() {
     setBusy("create");
     setError(null);
+    let savedId: number | null = null;
     try {
       const created = await endpoints.createAlert({
         severity,
         headline,
         body,
         lang: "en",
-        geojson: polygon,
+        ...(unitId != null ? { unit_ids: [unitId] } : { geojson: polygon }),
         expires_at: expires ? new Date(expires).toISOString() : null,
         estimated_onset_at: onset ? new Date(onset).toISOString() : null,
       });
+      savedId = created.alert_id;
       setAlertId(created.alert_id);
       const [nextPreview, nextGate, detail] = await Promise.all([
         endpoints.preview(created.alert_id),
@@ -85,8 +111,12 @@ export function Composer({
       setPreview(nextPreview);
       setGate(nextGate);
       setApprovals({ have: detail.approval_have, need: detail.approval_need });
-    } catch {
-      setError(t("compose.createError"));
+    } catch (err) {
+      setError(
+        savedId
+          ? t("compose.savedOpen", { id: savedId })
+          : failText(err, t("compose.createError")),
+      );
     } finally {
       setBusy(null);
     }
@@ -185,10 +215,7 @@ export function Composer({
                 <button
                   type="button"
                   className="composer__source"
-                  onClick={() => {
-                    setSeverity(String(row.severity));
-                    setHeadline(row.headline);
-                  }}
+                  onClick={() => onOpen(row.id)}
                 >
                   <span className="muted">{row.source_id}</span>
                   <SeverityBadge severity={row.severity} />
@@ -205,7 +232,7 @@ export function Composer({
       {error && <p className="danger" role="alert" aria-live="polite">{error}</p>}
       <div className="composer">
         <div className="live-map-wrap">
-          <LiveMap payload={map} cfg={cfg} draw onPolygon={onPolygon} />
+          <LiveMap payload={map} cfg={cfg} draw onPolygon={onPolygon} onUnit={onUnit} />
         </div>
         <form
           className="panel detail__box composer__form briefing"
@@ -243,7 +270,16 @@ export function Composer({
             <span>{t("compose.onset")}</span>
             <input type="datetime-local" value={onset} onChange={(e) => setOnset(e.target.value)} />
           </label>
-          <button className="btn btn--primary" type="submit" disabled={busy !== null || !severity || !headline || !body}>
+          {unitName ? (
+            <p className="muted">{t("compose.villagePicked", { name: unitName })}</p>
+          ) : (
+            <p className="muted">{t("compose.pickVillage")}</p>
+          )}
+          <button
+            className="btn btn--primary"
+            type="submit"
+            disabled={busy !== null || !severity || !headline || !body || (unitId == null && !polygon)}
+          >
             {busy === "create" ? t("compose.creating") : t("compose.create")}
           </button>
           {alertId && (

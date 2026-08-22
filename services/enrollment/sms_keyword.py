@@ -9,6 +9,7 @@ from services.api import config_repo
 from services.api.settings import settings
 from services.audit.ledger import append_audit
 from services.enrollment.phone_hash import normalize_phone_e164, phone_hash
+from services.response.citizen_response import ResponseError, submit_response
 
 
 @dataclass(frozen=True)
@@ -84,8 +85,13 @@ async def handle_inbound(
             )
             return SmsKeywordResult("stop", reply, int(row["id"]))
         return SmsKeywordResult("stop_unknown", reply)
+    first = token.split()[0] if token else ""
+    ack = await _try_alert_ack(conn, digest, first)
+    if ack is not None:
+        return ack
     if token != register_kw:
-        raise SmsKeywordError("unknown_keyword", "Unrecognized keyword")
+        hint = await config_repo.get(conn, "response.sms_reply.hint")
+        return SmsKeywordResult("unknown", hint or "SETU: Reply SAFE or HELP.")
     reply = await config_repo.get_str(conn, "enrollment.sms_auto_reply_registered")
     existing = await conn.fetchrow(
         "SELECT id, opted_out_at FROM recipient WHERE phone_hash = $1",
@@ -132,3 +138,54 @@ async def handle_inbound(
         actor="sms_keyword",
     )
     return SmsKeywordResult("register", reply, int(recipient_id))
+
+
+async def _try_alert_ack(
+    conn: asyncpg.Connection, digest: str, token: str
+) -> SmsKeywordResult | None:
+    """SAFE / HELP on the latest live warning for this number."""
+    safe_kw = (await config_repo.get(conn, "response.sms_keyword.safe") or "SAFE").upper()
+    help_kw = (await config_repo.get(conn, "response.sms_keyword.help") or "HELP").upper()
+    if token not in {safe_kw, help_kw}:
+        return None
+    row = await conn.fetchrow(
+        """
+        SELECT d.id
+        FROM delivery d
+        JOIN recipient r ON r.id = d.recipient_id
+        JOIN alert a ON a.id = d.alert_id
+        WHERE r.phone_hash = $1
+          AND a.lifecycle_status = 'active'
+          AND a.expires_at > now()
+        ORDER BY d.id DESC
+        LIMIT 1
+        """,
+        digest,
+    )
+    if row is None:
+        reply = await config_repo.get(conn, "response.sms_reply.no_alert")
+        return SmsKeywordResult(
+            "no_alert",
+            reply or "SETU: No live warning for this number.",
+        )
+    try:
+        if token == safe_kw:
+            await submit_response(
+                conn,
+                delivery_id=int(row["id"]),
+                response_type="safe",
+                idempotency_key=f"sms-safe-{row['id']}",
+            )
+            reply = await config_repo.get(conn, "response.sms_reply.safe")
+            return SmsKeywordResult("safe", reply or "SETU: Marked safe. Thank you.")
+        await submit_response(
+            conn,
+            delivery_id=int(row["id"]),
+            response_type="other",
+            idempotency_key=f"sms-help-{row['id']}",
+            free_text="SMS: HELP",
+        )
+        reply = await config_repo.get(conn, "response.sms_reply.help")
+        return SmsKeywordResult("help", reply or "SETU: Help request received.")
+    except ResponseError as exc:
+        raise SmsKeywordError(exc.code, exc.message) from exc

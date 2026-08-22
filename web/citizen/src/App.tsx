@@ -9,6 +9,8 @@ import {
   fetchSigningKey,
   hasCitizenSession,
   loginCitizen,
+  requestCitizenOtp,
+  verifyCitizenOtp,
   postAck,
   postPeerReceipt,
   postResponse,
@@ -121,6 +123,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [useEmail, setUseEmail] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
   const [deliveryId, setDeliveryId] = useState<number | null>(deliveryFromUrl);
@@ -396,6 +402,45 @@ export default function App() {
     await sendResponse(type, { freeText: otherText.trim() });
   }
 
+  function loginFail(err: unknown) {
+    if (err instanceof ApiError && err.status === 401) {
+      setLoginError("That number or code was not accepted.");
+    } else if (err instanceof ApiError && err.status === 503) {
+      setLoginError("Authentication is not configured on this server.");
+    } else {
+      setLoginError("Could not reach the API.");
+    }
+  }
+
+  async function onSendCode(e: FormEvent) {
+    e.preventDefault();
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      await requestCitizenOtp(phone);
+      setOtpSent(true);
+    } catch (err) {
+      loginFail(err);
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function onVerifyOtp(e: FormEvent) {
+    e.preventDefault();
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      await verifyCitizenOtp(phone, otp);
+      setOtp("");
+      setSignedIn(true);
+    } catch (err) {
+      loginFail(err);
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
   async function onLogin(e: FormEvent) {
     e.preventDefault();
     setLoginBusy(true);
@@ -426,40 +471,109 @@ export default function App() {
             <p className="eyebrow">Citizen</p>
             <h1>Sign in</h1>
           </header>
-          <p className="muted">You need to sign in before you can acknowledge an alert.</p>
-          <form className="stack" onSubmit={(event) => void onLogin(event)}>
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(event) => {
-                  setEmailTouched(true);
-                  setEmail(event.target.value);
+          <p className="muted">
+            Sign in with the mobile number SETU has for your village. After you
+            enter, tap Enable alerts so the next warning can also pop up on this phone.
+          </p>
+          {!useEmail ? (
+            <form className="stack" onSubmit={(event) => void (otpSent ? onVerifyOtp(event) : onSendCode(event))}>
+              <label className="field">
+                <span>Mobile number</span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  required
+                  value={phone}
+                  onChange={(event) => {
+                    setPhone(event.target.value);
+                    setOtpSent(false);
+                  }}
+                />
+              </label>
+              {otpSent ? (
+                <label className="field">
+                  <span>Code from SMS</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    value={otp}
+                    onChange={(event) => setOtp(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              {loginError ? (
+                <p className="error" role="alert">
+                  {loginError}
+                </p>
+              ) : null}
+              <button type="submit" className="primary" disabled={loginBusy || !phone.trim()}>
+                {loginBusy
+                  ? otpSent
+                    ? "Checking…"
+                    : "Sending…"
+                  : otpSent
+                    ? "Verify and enter"
+                    : "Send code"}
+              </button>
+              <button
+                type="button"
+                className="textlink"
+                onClick={() => {
+                  setUseEmail(true);
+                  setLoginError(null);
                 }}
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
-            {loginError ? (
-              <p className="error" role="alert">
-                {loginError}
-              </p>
-            ) : null}
-            <button type="submit" className="primary" disabled={loginBusy}>
-              {loginBusy ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
+              >
+                Use email instead
+              </button>
+            </form>
+          ) : (
+            <form className="stack" onSubmit={(event) => void onLogin(event)}>
+              <label className="field">
+                <span>Email</span>
+                <input
+                  type="email"
+                  autoComplete="username"
+                  required
+                  value={email}
+                  onChange={(event) => {
+                    setEmailTouched(true);
+                    setEmail(event.target.value);
+                  }}
+                />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              {loginError ? (
+                <p className="error" role="alert">
+                  {loginError}
+                </p>
+              ) : null}
+              <button type="submit" className="primary" disabled={loginBusy}>
+                {loginBusy ? "Signing in…" : "Sign in"}
+              </button>
+              <button
+                type="button"
+                className="textlink"
+                onClick={() => {
+                  setUseEmail(false);
+                  setLoginError(null);
+                }}
+              >
+                Use mobile number
+              </button>
+            </form>
+          )}
         </article>
       </main>
     );

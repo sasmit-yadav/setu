@@ -40,12 +40,18 @@ class TwilioSmsAdapter:
     async def send(self, msg: OutboundMessage) -> SendResult:
         if self._client is None or not self._from:
             raise ChannelUnavailable("twilio_not_configured")
+        from services.api import config_repo
+
         callback = public_webhook_url("/api/v1/webhooks/sms-status")
+        footer = await config_repo.get(self._conn, "response.sms_footer")
+        text = f"{msg.headline}\n\n{msg.body}"
+        if footer:
+            text = f"{text}\n\n{footer}"
         result = await asyncio.to_thread(
             self._client.messages.create,
             to=msg.address,
             from_=self._from,
-            body=f"{msg.headline}\n\n{msg.body}",
+            body=text,
             status_callback=callback,
         )
         await record(

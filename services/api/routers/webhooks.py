@@ -78,8 +78,9 @@ async def ivr_status(request: Request, conn=Depends(get_conn)) -> Response:
     delivery_id = None
     if provider_ref:
         delivery_id = await by_provider_ref(conn, provider_ref)
-    if delivery_id is None and form.get("delivery_id"):
-        delivery_id = int(form["delivery_id"])
+    raw_delivery = form.get("delivery_id") or request.query_params.get("delivery_id")
+    if delivery_id is None and raw_delivery:
+        delivery_id = int(raw_delivery)
     if delivery_id is None:
         return Response(status_code=204)
     if call_status == "in-progress":
@@ -93,6 +94,17 @@ async def ivr_status(request: Request, conn=Depends(get_conn)) -> Response:
     if digits:
         await record_from_dtmf(conn, delivery_id, digits)
         await confirm_relay_from_dtmf(conn, delivery_id, digits)
+    # Gather posts here and requires TwiML. An empty 204 is Twilio error 12300
+    # and drops the call before a "thank you". Status callbacks have no Digits key.
+    if "Digits" in form:
+        from services.api import config_repo
+
+        thanks = await config_repo.get(conn, "ivr.prompt.thanks") or "Thank you."
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f"<Response><Say>{escape(thanks)}</Say><Hangup/></Response>"
+        )
+        return Response(content=xml, media_type="application/xml")
     return Response(status_code=204)
 
 

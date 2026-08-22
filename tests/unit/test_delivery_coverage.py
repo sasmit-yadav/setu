@@ -180,11 +180,31 @@ async def test_adapters_unavailable_without_credentials(db_conn, delivery_row, m
         messages = Messages()
         calls = Calls()
 
+    captured: dict = {}
+
+    class CapturingMessages:
+        def create(self, **k):
+            captured.update(k)
+            return Sid()
+
+    class CapturingTwilio:
+        messages = CapturingMessages()
+        calls = Calls()
+
+    await db_conn.execute(
+        """
+        INSERT INTO app_config (key, value, unit, note)
+        VALUES ('response.sms_footer', 'Reply SAFE if you are safe. Reply HELP if you need help.', 'string', 'test')
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """
+    )
     sms = TwilioSmsAdapter(db_conn)
-    sms._client = FakeTwilio()
+    sms._client = CapturingTwilio()
     sms._from = "+10000000000"
     sent = await sms.send(_msg(delivery_row, channel="sms"))
     assert sent.provider_ref == "SM1"
+    assert "SAFE" in captured["body"]
+    assert "HELP" in captured["body"]
     ivr = TwilioIvrAdapter(db_conn)
     ivr._client = FakeTwilio()
     ivr._from = "+10000000000"

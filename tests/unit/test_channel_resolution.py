@@ -67,6 +67,35 @@ async def test_addressable_recipient_is_never_downgraded_to_the_simulator(
     assert await _channel_code(db_conn, channel_id) != "sim"
 
 
+async def test_phone_without_push_uses_sms_not_simulator(db_conn, delivery_row):
+    """Moderate now lists SMS. A villager with a number and no app must not
+    be dumped on the simulator just because FCM is step 1."""
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    await db_conn.execute("UPDATE alert SET severity = 'moderate' WHERE id = $1", alert_id)
+    sms_step = await db_conn.fetchval(
+        """
+        SELECT 1 FROM escalation_policy ep
+        JOIN channel c ON c.id = ep.channel_id
+        WHERE ep.severity = 'moderate' AND c.code = 'sms'
+        """
+    )
+    if sms_step is None:
+        pytest.skip("moderate SMS step not seeded")
+    await db_conn.execute(
+        """
+        UPDATE recipient
+        SET push_token = NULL, phone_enc = '\\x00'::bytea, email_enc = NULL
+        WHERE id = $1
+        """,
+        recipient_id,
+    )
+    resolved = await resolve_channels_for_recipients(db_conn, alert_id, [recipient_id])
+    channel_id, simulated = resolved[recipient_id]
+    assert simulated is False
+    assert await _channel_code(db_conn, channel_id) == "sms"
+
+
 async def test_resolution_is_per_recipient_not_per_alert(db_conn, delivery_row):
     """One alert, two recipients, different reachability -> different channels.
 

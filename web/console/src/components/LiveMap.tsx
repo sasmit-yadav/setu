@@ -440,7 +440,7 @@ export function LiveMap({
       addUnitLayers(
         map,
         first.units,
-        draw ? undefined : (id) => onUnitRef.current?.(id),
+        (id) => onUnitRef.current?.(id),
         0.55,
       );
       applySources(map, first, !draw);
@@ -463,6 +463,10 @@ export function LiveMap({
 
     if (draw) {
       map.on("click", (event: maplibregl.MapMouseEvent) => {
+        if (map.getLayer("units-fill")) {
+          const hit = map.queryRenderedFeatures(event.point, { layers: ["units-fill"] });
+          if (hit.length) return;
+        }
         points.current.push([event.lngLat.lng, event.lngLat.lat]);
         const ring = [...points.current];
         if (ring.length > 2) {

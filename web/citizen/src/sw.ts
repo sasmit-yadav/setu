@@ -153,6 +153,11 @@ self.addEventListener("push", (event) => {
         body,
         data,
         icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: "setu-alert",
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 400],
       });
       if (data.delivery_id && data.receipt_nonce) {
         try {

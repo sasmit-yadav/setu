@@ -54,7 +54,10 @@ async def create_draft_alert(
             )
             VALUES (
                 $1, 'manual', $2, $3, $4, $5,
-                ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
+                ST_Multi(ST_CollectionExtract(
+                    ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
+                    3
+                )),
                 $7, $8, $9, 'draft', $10
             )
             RETURNING id
