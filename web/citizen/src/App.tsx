@@ -21,7 +21,7 @@ import {
 import { setVerifyKey } from "./verify";
 import { listenPeer, sharePeer } from "./relay";
 import { enablePush, pushConfigured, pushFailMessage, pushSupported, refreshPushIfGranted } from "./push";
-import { speakAlert, speechSupported, stopSpeaking } from "./speak";
+import { speakAlert, speechSupported, stopSpeaking, unlockSpeech } from "./speak";
 import "./styles.css";
 
 type Screen = "alert" | "help" | "other" | "location";
@@ -168,13 +168,26 @@ export default function App() {
   }, [cfg, emailTouched]);
 
   useEffect(() => {
-    return () => stopSpeaking();
-  }, []);
-
-  useEffect(() => {
-    stopSpeaking();
-    setSpeaking(false);
-  }, [delivery?.delivery_id]);
+    if (!signedIn || !delivery || !speechSupported()) return;
+    const payload = {
+      severity: delivery.severity,
+      headline: delivery.headline,
+      body: delivery.body,
+      lang: delivery.lang,
+    };
+    const timer = window.setTimeout(() => {
+      const started = speakAlert({
+        ...payload,
+        onend: () => setSpeaking(false),
+      });
+      setSpeaking(started);
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      stopSpeaking();
+      setSpeaking(false);
+    };
+  }, [signedIn, delivery?.delivery_id]);
 
   const expireSession = useCallback(() => {
     clearCitizenSession();
@@ -455,6 +468,7 @@ export default function App() {
       setSpeaking(false);
       return;
     }
+    unlockSpeech();
     const started = speakAlert({
       severity: delivery.severity,
       headline: delivery.headline,
@@ -467,6 +481,7 @@ export default function App() {
 
   async function onSendCode(e: FormEvent) {
     e.preventDefault();
+    unlockSpeech();
     setLoginBusy(true);
     setLoginError(null);
     try {
@@ -481,6 +496,7 @@ export default function App() {
 
   async function onVerifyOtp(e: FormEvent) {
     e.preventDefault();
+    unlockSpeech();
     setLoginBusy(true);
     setLoginError(null);
     try {
@@ -496,6 +512,7 @@ export default function App() {
 
   async function onLogin(e: FormEvent) {
     e.preventDefault();
+    unlockSpeech();
     setLoginBusy(true);
     setLoginError(null);
     try {
