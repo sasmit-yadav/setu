@@ -320,6 +320,37 @@ async def test_load_adapters_and_create_deliveries(db_conn, delivery_row):
         await _close_redis(redis)
 
 
+async def test_extreme_phone_gets_sms_and_ivr_even_with_push_token(db_conn, delivery_row):
+    """Citizen-app login must not skip SMS/IVR on Extreme — those are compulsory."""
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    await db_conn.execute("UPDATE alert SET severity = 'extreme' WHERE id = $1", alert_id)
+    await db_conn.execute(
+        """
+        UPDATE recipient
+        SET push_token = 'tok', phone_enc = '\\x00'::bytea
+        WHERE id = $1
+        """,
+        recipient_id,
+    )
+    ids = await create_deliveries(db_conn, alert_id, [recipient_id])
+    codes = {
+        row["code"]
+        for row in await db_conn.fetch(
+            """
+            SELECT c.code FROM delivery d
+            JOIN channel c ON c.id = d.channel_id
+            WHERE d.id = ANY($1::bigint[])
+            """,
+            ids,
+        )
+    }
+    assert "sms" in codes
+    assert "ivr" in codes
+    assert "fcm" in codes
+    await db_conn.execute("DELETE FROM delivery WHERE id = ANY($1::bigint[])", ids)
+
+
 async def test_process_recipient_sim_path(db_conn, delivery_row, monkeypatch):
     async def no_sleep(_delay: float) -> None:
         return None

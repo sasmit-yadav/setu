@@ -181,28 +181,39 @@ async def process_recipient(
     alert_id: int,
     recipient_id: int,
 ) -> None:
-    row = await conn.fetchrow(
+    rows = await conn.fetch(
         """
         SELECT d.id, d.state, c.code
         FROM delivery d
         JOIN channel c ON c.id = d.channel_id
         WHERE d.alert_id = $1 AND d.recipient_id = $2
           AND d.state IN ('pending', 'queued')
-        ORDER BY d.attempt ASC, d.id ASC
-        LIMIT 1
+        ORDER BY d.id ASC
         """,
         alert_id,
         recipient_id,
     )
-    if row is None:
+    if not rows:
         return
-    delivery_id = row["id"]
     # Render's API cannot reach a laptop :8001, so compose-time
     # ensure_translations no-ops in the cloud. The worker *does* run here, and
     # worker-cloud points HF_SPACE_URL at local ML when no Space is set. Fill
     # the cache before the payload is built so FCM/PWA get Malayalam, not the
     # fallback notice.
     await ensure_translations(conn, alert_id)
+    for row in rows:
+        await _send_one_delivery(conn, redis, adapters, alert_id, recipient_id, row)
+
+
+async def _send_one_delivery(
+    conn: asyncpg.Connection,
+    redis: Redis,
+    adapters: dict,
+    alert_id: int,
+    recipient_id: int,
+    row: asyncpg.Record,
+) -> None:
+    delivery_id = row["id"]
     async with transaction(conn):
         if row["state"] == "pending":
             await transition(conn, delivery_id, State.queued)

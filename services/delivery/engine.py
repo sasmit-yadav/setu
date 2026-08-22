@@ -26,37 +26,81 @@ from services.targeting.escalation import resolve_channels_for_recipients
 from services.targeting.geo import recipients_in_area
 
 
+async def _insert_delivery(
+    conn: asyncpg.Connection,
+    alert_id: int,
+    recipient_id: int,
+    channel_id: int,
+    simulated: bool,
+) -> int:
+    delivery_id = await conn.fetchval(
+        """
+        INSERT INTO delivery (alert_id, recipient_id, channel_id, state, simulated)
+        VALUES ($1, $2, $3, 'pending', $4)
+        ON CONFLICT (alert_id, recipient_id, channel_id, attempt) DO NOTHING
+        RETURNING id
+        """,
+        alert_id,
+        recipient_id,
+        channel_id,
+        simulated,
+    )
+    if delivery_id is None:
+        delivery_id = await conn.fetchval(
+            """
+            SELECT id FROM delivery
+            WHERE alert_id = $1 AND recipient_id = $2 AND channel_id = $3 AND attempt = 1
+            """,
+            alert_id,
+            recipient_id,
+            channel_id,
+        )
+    return int(delivery_id)
+
+
+async def _extreme_phone_channel_ids(conn: asyncpg.Connection) -> tuple[int | None, int | None, int | None]:
+    rows = await conn.fetch("SELECT id, code FROM channel WHERE code = ANY($1::text[])", ["sms", "ivr", "fcm"])
+    by_code = {str(r["code"]): int(r["id"]) for r in rows}
+    return by_code.get("sms"), by_code.get("ivr"), by_code.get("fcm")
+
+
 async def create_deliveries(conn: asyncpg.Connection, alert_id: int, recipient_ids: list[int]) -> list[int]:
     # Channel is resolved PER RECIPIENT, not once for the whole alert — see
     # resolve_channels_for_recipients for why (§8.5's real-phones-vs-simulated
     # split cannot be expressed by a single channel choice).
     resolved = await resolve_channels_for_recipients(conn, alert_id, recipient_ids)
+    severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
+    sms_id, ivr_id, fcm_id = await _extreme_phone_channel_ids(conn)
     delivery_ids: list[int] = []
     for recipient_id in recipient_ids:
         channel_id, simulated = resolved[recipient_id]
-        delivery_id = await conn.fetchval(
-            """
-            INSERT INTO delivery (alert_id, recipient_id, channel_id, state, simulated)
-            VALUES ($1, $2, $3, 'pending', $4)
-            ON CONFLICT (alert_id, recipient_id, channel_id, attempt) DO NOTHING
-            RETURNING id
-            """,
-            alert_id,
-            recipient_id,
-            channel_id,
-            simulated,
-        )
-        if delivery_id is None:
-            delivery_id = await conn.fetchval(
+        plans: list[tuple[int, bool]] = [(channel_id, simulated)]
+        # Extreme: SMS + IVR are compulsory for every numbered phone, whether
+        # or not they opened the citizen app. Push is extra when a token exists.
+        if str(severity) == "extreme" and not simulated:
+            rec = await conn.fetchrow(
                 """
-                SELECT id FROM delivery
-                WHERE alert_id = $1 AND recipient_id = $2 AND channel_id = $3 AND attempt = 1
+                SELECT (push_token IS NOT NULL) AS has_push,
+                       (phone_enc IS NOT NULL) AS has_phone
+                FROM recipient WHERE id = $1
                 """,
-                alert_id,
                 recipient_id,
-                channel_id,
             )
-        delivery_ids.append(int(delivery_id))
+            if rec and rec["has_phone"]:
+                if sms_id is not None:
+                    plans.append((sms_id, False))
+                if ivr_id is not None:
+                    plans.append((ivr_id, False))
+            if rec and rec["has_push"] and fcm_id is not None:
+                plans.append((fcm_id, False))
+        seen: set[int] = set()
+        for cid, sim in plans:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            delivery_ids.append(
+                await _insert_delivery(conn, alert_id, recipient_id, cid, sim)
+            )
     return delivery_ids
 
 
