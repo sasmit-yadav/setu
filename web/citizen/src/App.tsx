@@ -21,6 +21,7 @@ import {
 import { setVerifyKey } from "./verify";
 import { listenPeer, sharePeer } from "./relay";
 import { enablePush, pushConfigured, pushFailMessage, pushSupported, refreshPushIfGranted } from "./push";
+import { speakAlert, speechSupported, stopSpeaking } from "./speak";
 import "./styles.css";
 
 type Screen = "alert" | "help" | "other" | "location";
@@ -144,6 +145,7 @@ export default function App() {
   const [shelter, setShelter] = useState<SafeZone | null>(null);
   const [pushState, setPushState] = useState<"idle" | "busy" | "enabled" | "error">("idle");
   const [pushError, setPushError] = useState<string | null>(null);
+  const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -164,6 +166,15 @@ export default function App() {
     const prefill = cfg?.["demo.citizen_email"];
     if (typeof prefill === "string" && prefill.trim()) setEmail(prefill);
   }, [cfg, emailTouched]);
+
+  useEffect(() => {
+    return () => stopSpeaking();
+  }, []);
+
+  useEffect(() => {
+    stopSpeaking();
+    setSpeaking(false);
+  }, [delivery?.delivery_id]);
 
   const expireSession = useCallback(() => {
     clearCitizenSession();
@@ -437,6 +448,23 @@ export default function App() {
       });
   }
 
+  function onReadWarning() {
+    if (!delivery) return;
+    if (speaking) {
+      stopSpeaking();
+      setSpeaking(false);
+      return;
+    }
+    const started = speakAlert({
+      severity: delivery.severity,
+      headline: delivery.headline,
+      body: delivery.body,
+      lang: delivery.lang,
+      onend: () => setSpeaking(false),
+    });
+    setSpeaking(started);
+  }
+
   async function onSendCode(e: FormEvent) {
     e.preventDefault();
     setLoginBusy(true);
@@ -683,6 +711,11 @@ export default function App() {
         ) : null}
       </header>
       <p className="body">{delivery.body}</p>
+      {speechSupported() ? (
+        <button type="button" className="textlink" onClick={onReadWarning}>
+          {speaking ? "Stop reading" : "Read this warning"}
+        </button>
+      ) : null}
       <div className="pass__perforation" aria-hidden />
       {shelter ? (
         <section className="shelter" aria-label="Nearest shelter">
