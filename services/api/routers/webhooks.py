@@ -9,6 +9,7 @@ from services.api.deps import get_conn, get_redis
 from services.delivery.assurance import record
 from services.delivery.channels.human_relay import confirm_relay_from_dtmf
 from services.delivery.lookup import by_provider_ref
+from services.delivery.voice import ENGLISH_TAG, voice_tag
 from services.delivery.webhook_verify import verify_twilio_form
 from services.enrollment.sms_keyword import SmsKeywordError, handle_inbound
 from services.ml.translate import lang_for_unit, resolve_alert_text
@@ -102,7 +103,7 @@ async def ivr_status(request: Request, conn=Depends(get_conn)) -> Response:
         thanks = await config_repo.get(conn, "ivr.prompt.thanks") or "Thank you."
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
-            f"<Response><Say>{escape(thanks)}</Say><Hangup/></Response>"
+            f'<Response><Say language="{ENGLISH_TAG}">{escape(thanks)}</Say><Hangup/></Response>'
         )
         return Response(content=xml, media_type="application/xml")
     return Response(status_code=204)
@@ -141,8 +142,13 @@ async def _build_ivr_twiml(
             delivery_id,
         )
     alert_id = await conn.fetchval("SELECT alert_id FROM delivery WHERE id = $1", delivery_id)
+    # Twilio speaks a bare <Say> with an en-US voice, which renders Devanagari
+    # and Malayalam as noise. Only ask for a script Twilio has a voice for;
+    # otherwise read the English source rather than fake the language.
+    say_lang = voice_tag(str(lang) if lang else None)
     if alert_id is not None:
-        resolved = await resolve_alert_text(conn, int(alert_id), str(lang) if lang else None)
+        wanted = str(lang) if lang and say_lang else None
+        resolved = await resolve_alert_text(conn, int(alert_id), wanted)
         prompt = f"{resolved.headline}. {resolved.body}. {prompt}"
     gather_digits = await config_repo.get_int(conn, "ivr.gather_digits")
     gather_timeout = await config_repo.get_int(conn, "ivr.gather_timeout_s")
@@ -150,7 +156,7 @@ async def _build_ivr_twiml(
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather numDigits="{gather_digits}" timeout="{gather_timeout}" action="{escape(callback, {'"': "&quot;"})}" method="POST">
-    <Say>{escape(prompt)}</Say>
+    <Say language="{say_lang or ENGLISH_TAG}">{escape(prompt)}</Say>
   </Gather>
 </Response>"""
     return Response(content=xml, media_type="application/xml")

@@ -126,7 +126,7 @@ async def list_citizen_deliveries(
         if row["alert_id"] in seen:
             continue
         seen.add(row["alert_id"])
-        out.append(await _to_out(conn, row, lang=village_lang))
+        out.append(await _to_out(conn, row, lang=row["preferred_lang"] or village_lang))
     return out[:cap]
 
 
@@ -145,7 +145,7 @@ async def citizen_delivery(
         if principal.unit_scope_id is not None
         else None
     )
-    return await _to_out(conn, row, lang=village_lang)
+    return await _to_out(conn, row, lang=row["preferred_lang"] or village_lang)
 
 
 @router.post("/device", response_model=DeviceRegisterResponse)
@@ -170,7 +170,7 @@ async def register_device(
             UPDATE recipient
             SET push_token = $2,
                 consented_at = COALESCE(consented_at, now()),
-                preferred_lang = COALESCE($3, preferred_lang)
+                preferred_lang = COALESCE(preferred_lang, $3)
             WHERE id = $1
             RETURNING id, unit_id
             """,
@@ -190,7 +190,7 @@ async def register_device(
         ON CONFLICT (unit_id) WHERE kind = 'citizen_pwa' DO UPDATE
             SET push_token = EXCLUDED.push_token,
                 consented_at = now(),
-                preferred_lang = COALESCE(EXCLUDED.preferred_lang, recipient.preferred_lang)
+                preferred_lang = COALESCE(recipient.preferred_lang, EXCLUDED.preferred_lang)
         RETURNING id, unit_id
         """,
         principal.unit_scope_id,
