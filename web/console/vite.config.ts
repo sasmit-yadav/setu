@@ -15,6 +15,11 @@ export default defineConfig({
       // the same way the citizen PWA does — Vercel is static files, not a rewrite.
       "/api": { target: "http://localhost:8000", changeOrigin: true, ws: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true, ws: true },
+      "/ofm": {
+        target: "https://tiles.openfreemap.org",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ofm/, ""),
+      },
     },
   },
   plugins: [react()],

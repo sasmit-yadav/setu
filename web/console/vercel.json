@@ -5,7 +5,11 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!assets/|tiles/).*)",
+      "source": "/ofm/:path*",
+      "destination": "https://tiles.openfreemap.org/:path*"
+    },
+    {
+      "source": "/((?!assets/|tiles/|ofm/).*)",
       "destination": "/index.html"
     }
   ],

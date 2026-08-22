@@ -49,6 +49,39 @@ function featureCenter(feature: GeoFeatureCollection["features"][number]): [numb
   return null;
 }
 
+const OFM_HOST = "https://tiles.openfreemap.org";
+
+function ofmProxyRoot(): string {
+  return `${window.location.origin}/ofm`;
+}
+
+function rewriteOfmUrl(url: string): string {
+  return url.split(OFM_HOST).join(ofmProxyRoot());
+}
+
+async function loadSameOriginOfmStyle(): Promise<Record<string, unknown>> {
+  const res = await fetch(`${ofmProxyRoot()}/styles/dark`);
+  if (!res.ok) throw new Error("ofm_style");
+  const style = (await res.json()) as {
+    sprite?: string;
+    glyphs?: string;
+    sources?: Record<string, { type?: string; url?: string; tiles?: string[] }>;
+  };
+  if (style.sprite) style.sprite = rewriteOfmUrl(style.sprite);
+  if (style.glyphs) style.glyphs = rewriteOfmUrl(style.glyphs);
+  for (const spec of Object.values(style.sources ?? {})) {
+    if (spec.tiles) spec.tiles = spec.tiles.map(rewriteOfmUrl);
+    if (spec.url) {
+      const tilejson = await fetch(rewriteOfmUrl(spec.url));
+      if (!tilejson.ok) throw new Error("ofm_tilejson");
+      const body = (await tilejson.json()) as { tiles?: string[] };
+      spec.tiles = (body.tiles ?? []).map(rewriteOfmUrl);
+      delete spec.url;
+    }
+  }
+  return style as Record<string, unknown>;
+}
+
 function baseStyle(): Record<string, unknown> {
   return {
     version: 8,
@@ -128,6 +161,7 @@ function addUnitLayers(
   map: maplibregl.Map,
   units: GeoFeatureCollection,
   onUnit: ((id: number) => void) | undefined,
+  fillOpacity: number,
 ) {
   if (!map.getSource("units")) {
     map.addSource("units", { type: "geojson", data: units as never });
@@ -154,7 +188,7 @@ function addUnitLayers(
           ],
           "#3d8fd1",
         ],
-        "fill-opacity": 0.62,
+        "fill-opacity": fillOpacity,
       },
     });
   }
@@ -368,36 +402,54 @@ export function LiveMap({
     if (!ref.current || !payload || mapRef.current) return;
     registerPmtiles();
     let observer: ResizeObserver | null = null;
+    let cancelled = false;
     const container = ref.current;
     const first = payload;
     const bootCfg = cfg;
 
-    const map = new maplibregl.Map({
-      container,
-      style: baseStyle() as never,
-      center: first.center,
-      zoom: first.zoom,
-      attributionControl: { compact: true },
-    });
+    void (async () => {
+      let style: Record<string, unknown> = baseStyle();
+      let streets = false;
+      try {
+        style = await loadSameOriginOfmStyle();
+        streets = true;
+      } catch {
+        streets = false;
+      }
+      if (cancelled || !container.isConnected || mapRef.current) return;
+      const map = new maplibregl.Map({
+        container,
+        style: style as never,
+        center: first.center,
+        zoom: first.zoom,
+        attributionControl: { compact: true },
+      });
       mapRef.current = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
       observer = new ResizeObserver(() => map.resize());
       observer.observe(container);
       map.on("load", () => {
         map.resize();
-        addUnitLayers(map, first.units, draw ? undefined : (id) => onUnitRef.current?.(id));
+        addUnitLayers(
+          map,
+          first.units,
+          draw ? undefined : (id) => onUnitRef.current?.(id),
+          streets ? 0.2 : 0.62,
+        );
         applySources(map, first, !draw);
         fitFeatures(map, first);
         placeLabels(map, first, labelMarkers.current);
-        void attachBasemap(map, bootCfg, first)
-          .then(() => {
-            try {
-              addPlaceNames(map);
-            } catch {
-              return;
-            }
-          })
-          .catch(() => undefined);
+        if (!streets) {
+          void attachBasemap(map, bootCfg, first)
+            .then(() => {
+              try {
+                addPlaceNames(map);
+              } catch {
+                return;
+              }
+            })
+            .catch(() => undefined);
+        }
       });
       if (draw) {
         map.on("click", (event: maplibregl.MapMouseEvent) => {
@@ -428,8 +480,10 @@ export function LiveMap({
           }
         });
       }
+    })();
 
     return () => {
+      cancelled = true;
       observer?.disconnect();
     };
   }, [Boolean(payload), draw]);
