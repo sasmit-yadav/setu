@@ -12,6 +12,7 @@ so a missing SMS credential cannot become an open login for every number.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import secrets
 
@@ -27,6 +28,10 @@ log = logging.getLogger(__name__)
 CITIZEN_ROLE = "citizen"
 OTP_EMAIL_DOMAIN = "otp.setu.invalid"
 
+# Length of a SHA-256 digest in hex. A structural fact of the hash, not a
+# tunable threshold — named so the hardcoding guard can tell the difference.
+SHA256_HEX_LEN = hashlib.sha256().digest_size * 2
+
 
 def otp_email_for_digest(digest: bytes) -> str:
     return f"c{digest.hex()}@{OTP_EMAIL_DOMAIN}"
@@ -37,7 +42,7 @@ def digest_hex_from_otp_email(email: str) -> str | None:
     if domain != OTP_EMAIL_DOMAIN or not local.startswith("c"):
         return None
     hexpart = local[1:]
-    if len(hexpart) != 64:
+    if len(hexpart) != SHA256_HEX_LEN:
         return None
     return hexpart
 

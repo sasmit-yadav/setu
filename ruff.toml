@@ -18,6 +18,11 @@
 #            assertion when the value came from a DB driver.
 "scripts/*.py" = ["PLW1510", "BLE001", "SIM117", "ISC004", "RUF046"]
 
+# The worker loop's broad except is the point: one poisoned stream message must
+# never take the sender process down mid-dispatch. It logs and acks, and the
+# fallback print() is there for when the logger itself is what failed.
+"services/delivery/worker.py" = ["BLE001"]
+
 # The db_conn fixture catches broad Exception on purpose: ANY connection
 # failure should skip the integration tests with a readable reason, not error
 # the whole run with a driver traceback.

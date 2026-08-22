@@ -66,7 +66,7 @@ async def public_config(conn: asyncpg.Connection = Depends(get_conn)) -> dict[st
         key = str(row["key"])
         value = row["value"]
         # Phone numbers are digit strings; int() would drop a leading 0.
-        if key.endswith("_phone") or key.endswith("_otp"):
+        if key.endswith(("_phone", "_otp")):
             out[key] = value
             continue
         try:
