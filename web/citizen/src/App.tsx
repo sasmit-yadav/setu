@@ -19,7 +19,7 @@ import {
   type SafeZone,
 } from "./api";
 import { setVerifyKey } from "./verify";
-import { listenPeer, sharePeer } from "./relay";
+import { listenPeer, sharePeer, readPeerFromUrl, stripPeerFromUrl, acceptPeerPayload, type PeerPayload } from "./relay";
 import { enablePush, pushConfigured, pushFailMessage, pushSupported, refreshPushIfGranted } from "./push";
 import { speakAlert, speechSupported, stopSpeaking, unlockSpeech } from "./speak";
 import "./styles.css";
@@ -146,6 +146,7 @@ export default function App() {
   const [pushState, setPushState] = useState<"idle" | "busy" | "enabled" | "error">("idle");
   const [pushError, setPushError] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const [offline, setOffline] = useState(() => !navigator.onLine);
 
   useEffect(() => {
     void (async () => {
@@ -188,6 +189,47 @@ export default function App() {
       setSpeaking(false);
     };
   }, [signedIn, delivery?.delivery_id]);
+
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
+  const applyPeer = useCallback((payload: PeerPayload) => {
+    setStatus("Peer alert received · signature verified");
+    setPeerProvenance(true);
+    setDelivery({
+      delivery_id: payload.delivery_id,
+      alert_id: payload.alert_id,
+      headline: payload.headline,
+      body: payload.body,
+      severity: payload.severity,
+      channel_code: "community_relay",
+      simulated: false,
+      lifecycle_status: "active",
+      effective_at: payload.effective_at,
+      expires_at: payload.expires_at,
+      signature: payload.signature,
+    });
+    setDeliveryId(payload.delivery_id);
+    setScreen("alert");
+    if (payload.signature && payload.effective_at) {
+      void postPeerReceipt({
+        delivery_id: payload.delivery_id,
+        alert_id: payload.alert_id,
+        headline: payload.headline,
+        severity: payload.severity,
+        effective_at: payload.effective_at,
+        signature: payload.signature,
+      }).catch(() => undefined);
+    }
+  }, []);
 
   const expireSession = useCallback(() => {
     clearCitizenSession();
@@ -282,36 +324,19 @@ export default function App() {
   }, [deliveryId, signedIn, expireSession]);
 
   useEffect(() => {
-    return listenPeer((payload) => {
-      setStatus("Peer alert received · signature verified");
-      setPeerProvenance(true);
-      setDelivery({
-        delivery_id: payload.delivery_id,
-        alert_id: payload.alert_id,
-        headline: payload.headline,
-        body: payload.body,
-        severity: payload.severity,
-        channel_code: "community_relay",
-        simulated: false,
-        lifecycle_status: "active",
-        effective_at: payload.effective_at,
-        expires_at: payload.expires_at,
-        signature: payload.signature,
-      });
-      setDeliveryId(payload.delivery_id);
-      setScreen("alert");
-      if (payload.signature && payload.effective_at) {
-        void postPeerReceipt({
-          delivery_id: payload.delivery_id,
-          alert_id: payload.alert_id,
-          headline: payload.headline,
-          severity: payload.severity,
-          effective_at: payload.effective_at,
-          signature: payload.signature,
-        }).catch(() => undefined);
-      }
+    return listenPeer(applyPeer);
+  }, [applyPeer]);
+
+  useEffect(() => {
+    if (!signedIn || !cfg) return;
+    const payload = readPeerFromUrl();
+    if (!payload) return;
+    void acceptPeerPayload(payload).then((ok) => {
+      if (!ok) return;
+      applyPeer(payload);
+      stripPeerFromUrl();
     });
-  }, []);
+  }, [signedIn, cfg, applyPeer]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -372,14 +397,15 @@ export default function App() {
         expireSession();
         return;
       }
-      const offline = !navigator.onLine || (e instanceof TypeError);
-      if (offline) {
-        setStatus("Saved. Will send as soon as there is a signal.");
-        setPending(true);
+      const offlineNow = !navigator.onLine || e instanceof TypeError;
+      if (offlineNow && !navigator.onLine) {
+        setStatus("No signal. This was not sent. When you have signal, tap Help again.");
+        setPending(false);
         setScreen("alert");
         return;
       }
-      setStatus(e instanceof Error ? e.message : "Failed");
+      setStatus("Could not send. Tap Help again — the desk will not see this until it succeeds.");
+      setPending(false);
     }
   }
 
@@ -706,6 +732,11 @@ export default function App() {
       <Brand />
       <header>
         <p className="live-banner">This is a live emergency alert</p>
+        {offline ? (
+          <p className="notice" role="status">
+            No signal. This is the copy already on this phone.
+          </p>
+        ) : null}
         <p className={`eyebrow eyebrow--${delivery.severity}`}>{delivery.severity}</p>
         <h1>{delivery.headline}</h1>
         {delivery.fallback_notice ? (
@@ -789,11 +820,10 @@ export default function App() {
             <IconAlert />
             <span>{helpLabel ?? "…"}</span>
           </button>
-          {peerEnabled && peerChunk != null && peerService && peerChar ? (
+          {peerEnabled && delivery.signature && delivery.effective_at ? (
             <button
               type="button"
               className="ghost share"
-              disabled={!delivery.signature || !delivery.effective_at}
               onClick={() =>
                 void sharePeer(
                   {
@@ -808,7 +838,7 @@ export default function App() {
                   },
                   {
                     enabled: peerEnabled,
-                    chunkBytes: peerChunk,
+                    chunkBytes: peerChunk ?? 0,
                     serviceUuid: peerService,
                     charUuid: peerChar,
                   },
@@ -817,7 +847,11 @@ export default function App() {
                     setStatus(
                       how === "bluetooth"
                         ? "Shared over Bluetooth."
-                        : "Queued for a nearby device. Bluetooth needs a SETU receiver advertising the relay service.",
+                        : how === "share"
+                          ? "Shared a signed link. Open it on the other phone in Chrome."
+                          : how === "copied"
+                            ? "Copied a signed link. Paste it in Chrome on the other phone."
+                            : "Could not copy a link. Open SETU on the other phone and ask them to wait — a web page cannot advertise Bluetooth.",
                     ),
                   )
                   .catch(() => setStatus("Could not share this alert."))

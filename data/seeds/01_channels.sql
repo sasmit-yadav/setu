@@ -28,14 +28,25 @@ INSERT INTO escalation_policy
    max_attempts, applies_if_reach_risk_gte)
 SELECT 'extreme', 0, id, 60, 1.5, 5000, 2, 0.65 FROM channel WHERE code = 'sms';
 
--- SEVERE: same channels, longer waits, human relay still available
+-- SEVERE: same live channels as Extreme (push, SMS, IVR), longer waits
+-- between steps. Dispatch inserts all three; hold_staggered_channels parks
+-- SMS/IVR on zset:retry so they do not fire in the same second. Human
+-- relay remains last-resort after the chain is spent.
 INSERT INTO escalation_policy
   (severity, step_order, channel_id, wait_before_next_s, backoff_multiplier, jitter_ms,
    max_attempts, applies_if_reach_risk_gte)
 SELECT 'severe', 1, id, 180, 1.5, 8000, 2, NULL::NUMERIC FROM channel WHERE code = 'fcm'
 UNION ALL SELECT 'severe', 2, id, 120, 1.5, 8000, 2, NULL::NUMERIC FROM channel WHERE code = 'sms'
-UNION ALL SELECT 'severe', 3, id, 300, 1.0, 0,    1, NULL::NUMERIC FROM channel WHERE code = 'email'
+UNION ALL SELECT 'severe', 3, id, 300, 1.0, 0,    1, NULL::NUMERIC FROM channel WHERE code = 'ivr'
 UNION ALL SELECT 'severe', 4, id, 300, 1.0, 0,    1, NULL::NUMERIC FROM channel WHERE code = 'human_relay';
+
+-- Existing databases seeded email at severe step 3 (pre-IVR). Point them at IVR.
+UPDATE escalation_policy p
+SET channel_id = c.id
+FROM channel c
+WHERE c.code = 'ivr'
+  AND p.severity = 'severe'
+  AND p.step_order = 3;
 
 -- MODERATE: push first, then SMS for people with a number and no token.
 -- Email last. No human relay — that wait is for severe/extreme.

@@ -64,9 +64,6 @@ export function ReplyInbox({
           value={counts.help}
           tone={counts.help ? "danger" : "ok"}
         />
-        <Kpi label={t("reply.kpiSms")} value={counts.sms} />
-        <Kpi label={t("reply.kpiIvr")} value={counts.ivr} />
-        <Kpi label={t("reply.kpiApp")} value={counts.app} />
       </section>
 
       <div className="chip-row" role="toolbar" aria-label={t("reply.filterAll")}>

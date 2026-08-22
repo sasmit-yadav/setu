@@ -9,6 +9,7 @@ from services.api import config_repo
 from services.audit.ledger import append_audit
 from services.delivery.channels.registry import chunked
 from services.delivery.keys import keys
+from services.delivery.retry import hold_staggered_channels
 from services.governance.approvals import ensure_dispatch_allowed
 from services.governance.quality_gate import (
     has_blocking_failure,
@@ -24,6 +25,8 @@ from services.governance.versioning import (
 from services.ml.reach_risk import predict_for_alert
 from services.targeting.escalation import resolve_channels_for_recipients
 from services.targeting.geo import recipients_in_area
+
+PHONE_BLAST_SEVERITIES = frozenset({"extreme", "severe"})
 
 
 async def _insert_delivery(
@@ -58,7 +61,7 @@ async def _insert_delivery(
     return int(delivery_id)
 
 
-async def _extreme_phone_channel_ids(conn: asyncpg.Connection) -> tuple[int | None, int | None, int | None]:
+async def _phone_blast_channel_ids(conn: asyncpg.Connection) -> tuple[int | None, int | None, int | None]:
     rows = await conn.fetch("SELECT id, code FROM channel WHERE code = ANY($1::text[])", ["sms", "ivr", "fcm"])
     by_code = {str(r["code"]): int(r["id"]) for r in rows}
     return by_code.get("sms"), by_code.get("ivr"), by_code.get("fcm")
@@ -69,15 +72,17 @@ async def create_deliveries(conn: asyncpg.Connection, alert_id: int, recipient_i
     # resolve_channels_for_recipients for why (§8.5's real-phones-vs-simulated
     # split cannot be expressed by a single channel choice).
     resolved = await resolve_channels_for_recipients(conn, alert_id, recipient_ids)
-    severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
-    sms_id, ivr_id, fcm_id = await _extreme_phone_channel_ids(conn)
+    severity = str(await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id) or "")
+    sms_id, ivr_id, fcm_id = await _phone_blast_channel_ids(conn)
     delivery_ids: list[int] = []
     for recipient_id in recipient_ids:
         channel_id, simulated = resolved[recipient_id]
         plans: list[tuple[int, bool]] = [(channel_id, simulated)]
-        # Extreme: SMS + IVR are compulsory for every numbered phone, whether
-        # or not they opened the citizen app. Push is extra when a token exists.
-        if str(severity) == "extreme" and not simulated:
+        # Extreme: all live channels at once. Severe: the same set, held on
+        # zset:retry so each channel waits the previous step's
+        # wait_before_next_s (hold_staggered_channels). Push is extra when a
+        # token exists; SMS + IVR stay compulsory for a numbered phone.
+        if severity in PHONE_BLAST_SEVERITIES and not simulated:
             rec = await conn.fetchrow(
                 """
                 SELECT (push_token IS NOT NULL) AS has_push,
@@ -144,6 +149,7 @@ async def dispatch_alert(conn: asyncpg.Connection, redis: Redis, alert_id: int, 
                         "no_recipients", "No consented recipients intersect the alert area"
                     )
                 await create_deliveries(conn, alert_id, recipient_ids)
+                await hold_staggered_channels(conn, redis, alert_id)
                 await enqueue_fanout(redis, conn, alert_id, recipient_ids)
                 await conn.execute(
                     "UPDATE alert SET lifecycle_status = 'active' WHERE id = $1",

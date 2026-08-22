@@ -317,6 +317,8 @@ class AlertDetailOut(BaseModel):
 class PreviewResponse(BaseModel):
     alert_id: int
     recipient_count: int
+    estimated_population: int | None = None
+    building_count: int | None = None
     units: list[dict]
 
 

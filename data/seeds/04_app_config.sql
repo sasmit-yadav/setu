@@ -69,7 +69,7 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('time.seconds_per_minute', '60', 'seconds', 'Minutes to seconds conversion'),
   ('http.status_client_error_min', '400', 'http', 'Outbound HTTP responses at or above this are failures'),
   ('delivery.xread_count', '10', 'messages', 'Redis XREADGROUP batch count'),
-  ('delivery.xread_block_ms', '15000', 'ms', 'Redis XREADGROUP block timeout. Raised from 5000: B3''s drain_due_retries() issues a ZPOPMIN on every idle tick, so at 5s this alone cost 17,280 commands/day before one alert dispatched -- more than Upstash''s whole daily budget. 15s cuts idle-tick cost 3x for 10s of added worst-case retry latency, which is immaterial against the policy''s own 45-120s wait_before_next_s values. See docs/evidence/redis-budget-2026-08-21.md.'),
+  ('delivery.xread_block_ms', '15000', 'ms', 'Redis XREADGROUP block timeout. Raised from 5000: B3''s drain_due_retries() issues a ZPOPMIN on every idle tick, so at 5s this alone cost 17,280 commands/day before one alert dispatched -- more than Upstash''s whole daily budget. 15s cuts idle-tick cost 3x for 10s of added worst-case retry latency, which is immaterial against the policy''s own 45-120s wait_before_next_s values. See docs/IMPLEMENTATION.md §12.2.'),
   ('delivery.xread_socket_timeout_grace_s', '5', 'seconds', 'Added to xread_block_ms to derive the Redis client socket timeout. MUST be > 0: if the socket timeout is not longer than the blocking read, an IDLE worker times out and exits, and idle is a delivery worker''s normal state between alerts.');
 
 -- ═══ Simulated carrier profile (§8.5 — values in config, not code) ═══

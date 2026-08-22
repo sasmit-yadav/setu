@@ -40,10 +40,8 @@ console and the citizen PWA, none of which the Space builds or runs.
 | Read this | For |
 |---|---|
 | `docs/TASK.md` | What to do next, and what is blocked on what |
-| `docs/IMPLEMENTATION.md` | How it actually works, and every deviation from the spec |
-| `docs/PART19-DOD.md` | The Definition of Done, walked line by line with evidence |
+| `docs/IMPLEMENTATION.md` | How it actually works: reality, deploy runbook (§10), Part 19 DoD (§11), dated evidence (§12) |
 | `docs/SETU_MASTER_v3.0_MERGED.md` | The design specification (42 features, 38 parts) |
-| `docs/evidence/` | Dated artifacts — captured backoff curves, etc. |
 
 ## Running it locally
 
@@ -53,6 +51,7 @@ python run.py data-bootstrap # migrate, seed config, verify
 python run.py api            # :8000
 python run.py worker         # delivery consumer
 python run.py citizen-dev    # citizen PWA on :5174
+python run.py citizen-apk    # sideload APK (Docker; not Play Store)
 ```
 
 The operations console is `:5173`. `python run.py demo` is the Part 19 gate:

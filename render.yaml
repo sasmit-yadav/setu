@@ -32,7 +32,7 @@ services:
       # asyncpg accepts them and negotiates TLS itself. Removing only
       # ?sslmode=require leaves &channel_binding=require glued to the database
       # name and asyncpg reports "database ...&channel_binding=require does not
-      # exist", which reads as a missing database. See docs/DEPLOY.md.
+      # exist", which reads as a missing database. See docs/IMPLEMENTATION.md §10.
       - key: DATABASE_URL_POOLED
         sync: false
       - key: DATABASE_URL_DIRECT

@@ -1,0 +1,42 @@
+plugins {
+    id "com.android.application"
+}
+
+def pwaUrl = System.getenv("CITIZEN_PWA_URL") ?: "https://setucitizen.vercel.app/"
+if (!pwaUrl.endsWith("/")) {
+    pwaUrl = pwaUrl + "/"
+}
+
+android {
+    namespace "in.setu.citizen"
+    compileSdk 34
+    defaultConfig {
+        applicationId "in.setu.citizen"
+        minSdk 24
+        targetSdk 34
+        versionCode 2
+        versionName "0.1.1"
+        buildConfigField "String", "PWA_URL", "\"${pwaUrl}\""
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    buildTypes {
+        debug {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.webkit:webkit:1.11.0"
+}

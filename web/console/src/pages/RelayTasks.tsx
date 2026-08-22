@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { endpoints, type RelayTask } from "../lib/api";
 import { lookup, useT } from "../lib/i18n";
 import { SeverityBadge } from "../components/SeverityBadge";
-import { ProvenanceChip } from "../components/ProvenanceChip";
 
 export function RelayTasks() {
   const { t } = useT();
   const [rows, setRows] = useState<RelayTask[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     try {
@@ -16,6 +17,8 @@ export function RelayTasks() {
       setError(null);
     } catch {
       setError(t("relay.loadError"));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -42,7 +45,9 @@ export function RelayTasks() {
           <p className="screen__kicker">{t("relay.kicker")}</p>
           <h2>{t("relay.title")}</h2>
         </div>
-        <ProvenanceChip kind="humanRelay" />
+        <button className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
+          <RefreshCw size={14} aria-hidden /> {t("live.refresh")}
+        </button>
       </header>
       <p className="lede">{t("relay.lede")}</p>
       {error && <p className="danger" role="alert">{error}</p>}
@@ -54,13 +59,16 @@ export function RelayTasks() {
           <span>{t("relay.colState")}</span>
           <span />
         </div>
-        {rows.length === 0 && <p className="muted table__empty">{t("relay.empty")}</p>}
+        {loading && <p className="muted table__empty">{t("common.loading")}</p>}
+        {!loading && rows.length === 0 && (
+          <p className="muted table__empty">{t("relay.empty")}</p>
+        )}
         {rows.map((row) => (
           <div key={row.id} className="table__row relay__row" role="row">
             <span>{row.unit_name}</span>
             <SeverityBadge severity={row.severity} />
-            <span>{row.headline}</span>
-            <span className="muted">{lookup(t, "state", row.state)}</span>
+            <span className="table__headline">{row.headline}</span>
+            <span>{lookup(t, "state", row.state)}</span>
             <button
               className="btn btn--approve"
               disabled={busyId === row.id}

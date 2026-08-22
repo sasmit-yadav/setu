@@ -6,8 +6,9 @@ log from a forced-failure test." This produces that artifact, dated, from the
 REAL seeded escalation_policy rows rather than from illustrative numbers — so
 the log is evidence about this deployment's configuration, not a diagram.
 
-Writes docs/evidence/backoff-<date>.md. Run with an explicit date so the
-artifact is reproducible:
+Prints markdown to stdout. The canonical copy lives in
+docs/IMPLEMENTATION.md §12.1 — paste a regeneration there. Optional
+`--out path` writes a local file (do not commit a second copy).
 
     python scripts/capture_backoff_log.py --date 2026-08-21
 """
@@ -27,8 +28,6 @@ if str(ROOT) not in sys.path:
 
 from services.api.db import connect
 from services.delivery.retry import compute_delay_s
-
-OUT_DIR = ROOT / "docs" / "evidence"
 
 # Fixed seed so the captured artifact is reproducible while still exercising the
 # real jitter path. The randomness being demonstrated is the SPREAD, not the
@@ -50,6 +49,10 @@ async def main() -> int:
     _fix_windows_console_encoding()
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", required=True, help="YYYY-MM-DD stamped into the artifact")
+    ap.add_argument(
+        "--out",
+        help="optional local path; canonical copy is docs/IMPLEMENTATION.md §12.1",
+    )
     args = ap.parse_args()
 
     conn = await connect()
@@ -175,10 +178,20 @@ async def main() -> int:
     )
     lines.append("")
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"backoff-{args.date}.md"
-    out.write_text("\n".join(lines), encoding="utf-8")
-    print(f"wrote {out.relative_to(ROOT).as_posix()} ({len(rows)} policy steps)")
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    sys.stdout.write(text)
+    if args.out:
+        out = pathlib.Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"wrote {out} ({len(rows)} policy steps)", file=sys.stderr)
+    else:
+        print(
+            f"{len(rows)} policy steps — paste into docs/IMPLEMENTATION.md §12.1",
+            file=sys.stderr,
+        )
     return 0
 
 

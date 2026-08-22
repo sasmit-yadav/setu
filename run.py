@@ -13,6 +13,7 @@ db container instead, so Docker is the only external dependency.
     python run.py doctor          report what this machine can and cannot run
     python run.py check           everything CI runs
     python run.py demo            THE GATE (Part 19) — snapshot, offline
+    python run.py citizen-apk     sideload APK of the citizen PWA (Docker)
 
 Task names match Part 37's Makefile targets exactly, so the spec still reads
 true: wherever it says `make seed`, run `python run.py seed`.
@@ -263,7 +264,7 @@ def worker_cloud() -> None:
         print(
             "Missing .env.cloud — it holds the Neon + Upstash URLs and the\n"
             "channel credentials for a local worker against the deployed data\n"
-            "plane. See docs/DEPLOY.md. Refusing to fall back to .env, because\n"
+            "plane. See docs/IMPLEMENTATION.md §10. Refusing to fall back to .env, because\n"
             "that would drain the LOCAL queue while looking like production.",
             file=sys.stderr,
         )
@@ -291,6 +292,11 @@ def ingest() -> None:
 @task("Apply data/seeds/04_app_config.sql idempotently (ON CONFLICT upsert)")
 def seed_config() -> None:
     must([PY, "scripts/upsert_app_config.py"])
+
+
+@task("Build a sideload APK of the citizen PWA (Docker; not Play Store)")
+def citizen_apk() -> None:
+    must([PY, "scripts/build_citizen_apk.py"])
 
 
 @task("Start citizen PWA dev server on :5174")

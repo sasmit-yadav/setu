@@ -190,23 +190,34 @@ async def preview_exposure(conn: asyncpg.Connection, alert_id: int) -> dict[str,
         raise ComposeError("alert_not_found", "Alert not found")
     rows = await conn.fetch(
         """
-        SELECT u.id, u.name, COUNT(DISTINCT r.id) AS recipients
+        SELECT u.id, u.name, u.population, u.building_count,
+               COUNT(DISTINCT r.id) AS recipients
         FROM admin_unit u
         JOIN alert a ON a.id = $1
         LEFT JOIN recipient r ON r.unit_id = u.id
           AND r.consented_at IS NOT NULL AND r.opted_out_at IS NULL
         WHERE ST_Intersects(u.geom, a.area)
-        GROUP BY u.id, u.name
+        GROUP BY u.id, u.name, u.population, u.building_count
         ORDER BY recipients DESC, u.name
         """,
         alert_id,
     )
     total = sum(int(row["recipients"] or 0) for row in rows)
+    population = sum(int(row["population"] or 0) for row in rows)
+    buildings = sum(int(row["building_count"] or 0) for row in rows)
     return {
         "alert_id": alert_id,
         "recipient_count": total,
+        "estimated_population": population or None,
+        "building_count": buildings or None,
         "units": [
-            {"unit_id": row["id"], "name": row["name"], "recipients": int(row["recipients"] or 0)}
+            {
+                "unit_id": row["id"],
+                "name": row["name"],
+                "recipients": int(row["recipients"] or 0),
+                "estimated_population": int(row["population"]) if row["population"] is not None else None,
+                "building_count": int(row["building_count"]) if row["building_count"] is not None else None,
+            }
             for row in rows
         ],
     }

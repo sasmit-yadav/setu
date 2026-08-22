@@ -10,6 +10,10 @@ from services.audit.ledger import append_audit
 from services.delivery.channels.human_relay import find_relay_node
 from services.delivery.keys import keys
 
+# Siren/sim success is not proof a person was reached. Spend a runner when
+# no real digital channel (push/SMS/IVR/email) made it off the simulated path.
+_REAL_REACH_CHANNELS = ("fcm", "sms", "ivr", "email")
+
 
 async def on_channels_exhausted(
     conn: asyncpg.Connection,
@@ -85,3 +89,63 @@ async def on_channels_exhausted(
         actor="delivery_worker",
     )
     return int(delivery_id)
+
+
+async def maybe_open_human_relay_if_unreached(
+    conn: asyncpg.Connection,
+    redis: Redis,
+    *,
+    alert_id: int,
+    recipient_id: int,
+) -> int | None:
+    """Open B9 when this person only has simulated (or failed) digital reach."""
+    already = await conn.fetchval(
+        """
+        SELECT 1
+        FROM delivery d
+        JOIN channel c ON c.id = d.channel_id
+        WHERE d.alert_id = $1 AND d.recipient_id = $2 AND c.code = 'human_relay'
+        LIMIT 1
+        """,
+        alert_id,
+        recipient_id,
+    )
+    if already:
+        return None
+    reached = await conn.fetchval(
+        """
+        SELECT 1
+        FROM delivery d
+        JOIN channel c ON c.id = d.channel_id
+        WHERE d.alert_id = $1
+          AND d.recipient_id = $2
+          AND d.simulated = false
+          AND d.state IN ('sent', 'delivered', 'acknowledged')
+          AND c.code = ANY($3::text[])
+        LIMIT 1
+        """,
+        alert_id,
+        recipient_id,
+        list(_REAL_REACH_CHANNELS),
+    )
+    if reached:
+        return None
+    exhausted_id = await conn.fetchval(
+        """
+        SELECT id FROM delivery
+        WHERE alert_id = $1 AND recipient_id = $2
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        alert_id,
+        recipient_id,
+    )
+    if exhausted_id is None:
+        return None
+    return await on_channels_exhausted(
+        conn,
+        redis,
+        alert_id=alert_id,
+        recipient_id=recipient_id,
+        exhausted_delivery_id=int(exhausted_id),
+    )

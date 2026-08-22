@@ -42,12 +42,19 @@ from services.delivery.engine import (
 from services.delivery.fatigue import apply_headline, evaluate
 from services.delivery.keys import RedisKeys, keys
 from services.delivery.lookup import by_provider_ref, delivery_channel_code
-from services.delivery.ops_events import publish_ops
 from services.delivery.receipts import record_receipt, store_nonce
-from services.delivery.relay_escalation import on_channels_exhausted
+from services.delivery.relay_escalation import (
+    maybe_open_human_relay_if_unreached,
+    on_channels_exhausted,
+)
+from services.delivery.retry import hold_staggered_channels
 from services.delivery.state_machine import transition
 from services.delivery.states import State
-from services.delivery.webhook_verify import public_webhook_url, twilio_auth_token, verify_twilio_form
+from services.delivery.webhook_verify import (
+    public_webhook_url,
+    twilio_auth_token,
+    verify_twilio_form,
+)
 from services.delivery.worker import (
     build_message,
     ensure_consumer_group,
@@ -349,6 +356,92 @@ async def test_extreme_phone_gets_sms_and_ivr_even_with_push_token(db_conn, deli
     assert "ivr" in codes
     assert "fcm" in codes
     await db_conn.execute("DELETE FROM delivery WHERE id = ANY($1::bigint[])", ids)
+
+
+async def test_severe_phone_gets_same_channels_as_extreme(db_conn, delivery_row):
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    await db_conn.execute("UPDATE alert SET severity = 'severe' WHERE id = $1", alert_id)
+    await db_conn.execute(
+        """
+        UPDATE recipient
+        SET push_token = 'tok', phone_enc = '\\x00'::bytea
+        WHERE id = $1
+        """,
+        recipient_id,
+    )
+    ids = await create_deliveries(db_conn, alert_id, [recipient_id])
+    codes = {
+        row["code"]
+        for row in await db_conn.fetch(
+            """
+            SELECT c.code FROM delivery d
+            JOIN channel c ON c.id = d.channel_id
+            WHERE d.id = ANY($1::bigint[])
+            """,
+            ids,
+        )
+    }
+    assert "sms" in codes
+    assert "ivr" in codes
+    assert "fcm" in codes
+    await db_conn.execute("DELETE FROM delivery WHERE id = ANY($1::bigint[])", ids)
+
+
+async def test_severe_staggers_later_channels_on_retry_zset(db_conn, delivery_row):
+    alert_id = delivery_row["alert_id"]
+    recipient_id = delivery_row["recipient_id"]
+    await db_conn.execute("UPDATE alert SET severity = 'severe' WHERE id = $1", alert_id)
+    await db_conn.execute(
+        """
+        UPDATE recipient
+        SET push_token = 'tok', phone_enc = '\\x00'::bytea
+        WHERE id = $1
+        """,
+        recipient_id,
+    )
+    ids = await create_deliveries(db_conn, alert_id, [recipient_id])
+    held: dict[int, float] = {}
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        held = await hold_staggered_channels(db_conn, redis, alert_id)
+        assert held, "severe must park at least one channel"
+        rows = await db_conn.fetch(
+            """
+            SELECT d.id, c.code FROM delivery d
+            JOIN channel c ON c.id = d.channel_id
+            WHERE d.id = ANY($1::bigint[])
+            """,
+            ids,
+        )
+        by_code = {str(r["code"]): int(r["id"]) for r in rows}
+        fcm_id = by_code["fcm"]
+        sms_id = by_code["sms"]
+        ivr_id = by_code["ivr"]
+        assert fcm_id not in held
+        assert sms_id in held
+        assert ivr_id in held
+        fcm_wait = await db_conn.fetchval(
+            """
+            SELECT wait_before_next_s FROM escalation_policy p
+            JOIN channel c ON c.id = p.channel_id
+            WHERE p.severity = 'severe' AND c.code = 'fcm'
+            """,
+        )
+        sms_wait = await db_conn.fetchval(
+            """
+            SELECT wait_before_next_s FROM escalation_policy p
+            JOIN channel c ON c.id = p.channel_id
+            WHERE p.severity = 'severe' AND c.code = 'sms'
+            """,
+        )
+        assert held[sms_id] == float(fcm_wait)
+        assert held[ivr_id] == float(fcm_wait) + float(sms_wait)
+    finally:
+        if held:
+            await redis.zrem(keys.zset_retry(), *[str(i) for i in held])
+        await redis.aclose()
+        await db_conn.execute("DELETE FROM delivery WHERE id = ANY($1::bigint[])", ids)
 
 
 async def test_process_recipient_sim_path(db_conn, delivery_row, monkeypatch):
@@ -958,5 +1051,55 @@ async def test_coverage_remaining_branches(db_conn, delivery_row, monkeypatch):
             await process_recipient(
                 db_conn, redis, {}, delivery_row["alert_id"], delivery_row["recipient_id"]
             )
+    finally:
+        await _close_redis(redis)
+
+
+async def test_real_digital_reach_does_not_open_runner(db_conn, delivery_row):
+    fcm_id = await db_conn.fetchval("SELECT id FROM channel WHERE code = 'fcm'")
+    await db_conn.execute(
+        "UPDATE delivery SET channel_id = $2, simulated = false, state = 'delivered' WHERE id = $1",
+        delivery_row["id"],
+        fcm_id,
+    )
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        opened = await maybe_open_human_relay_if_unreached(
+            db_conn,
+            redis,
+            alert_id=delivery_row["alert_id"],
+            recipient_id=delivery_row["recipient_id"],
+        )
+        assert opened is None
+    finally:
+        await _close_redis(redis)
+
+
+async def test_simulated_only_reach_attempts_runner(db_conn, delivery_row):
+    siren_id = await db_conn.fetchval("SELECT id FROM channel WHERE code = 'siren'")
+    await db_conn.execute(
+        "UPDATE delivery SET channel_id = $2, simulated = true, state = 'delivered' WHERE id = $1",
+        delivery_row["id"],
+        siren_id,
+    )
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await maybe_open_human_relay_if_unreached(
+            db_conn,
+            redis,
+            alert_id=delivery_row["alert_id"],
+            recipient_id=delivery_row["recipient_id"],
+        )
+        events = await db_conn.fetch(
+            """
+            SELECT event_type FROM audit_event
+            WHERE alert_id = $1 AND event_type IN ('relay.task_created', 'relay.unavailable')
+            """,
+            delivery_row["alert_id"],
+        )
+        assert {row["event_type"] for row in events} & {
+            "relay.task_created",
+            "relay.unavailable",
+        }
     finally:
         await _close_redis(redis)

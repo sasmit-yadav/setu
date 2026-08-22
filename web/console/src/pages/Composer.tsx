@@ -293,6 +293,7 @@ export function Composer({
                 {t("compose.previewLine", {
                   id: preview.alert_id,
                   people: preview.recipient_count,
+                  pop: preview.estimated_population ?? "—",
                   units: preview.units.length,
                 })}
               </p>
@@ -304,7 +305,11 @@ export function Composer({
               <ul className="muted">
                 {preview.units.slice(0, 8).map((row) => (
                   <li key={row.unit_id}>
-                    {t("compose.peopleIn", { name: row.name, n: row.recipients })}
+                    {t("compose.peopleIn", {
+                      name: row.name,
+                      n: row.recipients,
+                      pop: row.estimated_population ?? "—",
+                    })}
                   </li>
                 ))}
               </ul>

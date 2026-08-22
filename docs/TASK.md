@@ -4,51 +4,131 @@ Status-based, not day-based. Update this file whenever a task's status
 changes — this is the file to open to answer "what do I do next."
 
 For "how does the system work / why is it built this way," see
-`docs/IMPLEMENTATION.md`, not this file.
+`docs/IMPLEMENTATION.md`, not this file. Product docs under `docs/` are
+only this file, `IMPLEMENTATION.md`, and `SETU_MASTER_v3.0_MERGED.md`.
 
 **Legend:** 🔴 Blocked (needs an external account/credential/decision) ·
 🟡 Ready to build (nothing blocking) · 🟢 Done · ⚪ Not started, not urgent
 
-**Last verification (21 Aug 2026 — line-by-line Part 16 audit, then deployed):**
-**267 tests passed**, 2 skipped, delivery coverage **95.87%**, all six guards
-green, `ruff check services/` clean.
+**Last verification (22 Aug 2026 — SIH live Extreme on Neon, then desk copy):**
+Prior suite on 21 Aug: **267 tests passed**, 2 skipped, delivery coverage
+**95.87%**, all six guards green, `ruff check services/` clean. 22 Aug added
+`test_officer_assistance_lists_contained_village` and the Extreme
+multi-channel worker path. Full write-up: `docs/IMPLEMENTATION.md` **§6.18**
+(what Neon held) and **§7.6** (Help needed ≠ Send a runner).
 
 **Now running in production** on four free-tier services at ₹0 —
 PWA https://setucitizen.vercel.app · console https://setuconsole.vercel.app ·
 API https://setu-api-6ujx.onrender.com · Neon · Upstash. Verified against the
-live stack, not assumed: real login → 236-char JWT, `/auth/me` returning the
+live stack, not assumed: real login → JWT, `/auth/me` returning the
 correct officer scope, 39 PostGIS village features clipped to Vythiri, `sw.js`
-served as `application/javascript` (the rewrite guard holding), CORS admitting
-the Vercel origins, and the worker reading and acking a probe entry off the
-deployed Upstash stream. See `docs/IMPLEMENTATION.md` §6.14 for the topology
-and the nine things that broke getting there; **§6.16** for the citizen
-village inbox (no typed delivery ID) and the officer language pack.
+served as `application/javascript`, CORS admitting the Vercel origins, and the
+laptop worker consuming Upstash. Topology: §6.14. Citizen village inbox
+(no typed delivery ID): §6.16. Live Extreme: §6.18.
 
-⚠️ **`fcm_send` is still 0.** The primary channel is the one thing still
-unproven, and it needs a human to grant notification permission on a handset.
+✅ **`fcm_send` is proven.** Live Extreme **alert 6** wrote real
+`provider_accepted` FCM rows for Muttil recipients 1, 3, and 4. Recipient 5’s
+token was `device_unregistered` (honest fail, not simulated). Enable alerts
+again on that PWA before the next Send.
 
 **Demo-day now (22 Aug, this laptop).** The loop works. What still kills a
 stage run is operational, not missing code:
 
-1. **Worker is up** — `python run.py worker-cloud` is connected to Neon
-   `ep-damp-dust-az2n3wn2` and Upstash `fresh-kingfish-106444`, FCM
-   credentials present. Leave that terminal open. Sleep = silent queue.
-2. **Hosted console is the new desk** — `setuconsole.vercel.app` title is
-   **Officer desk**. GitHub auto-deploy had been failing because the Vercel
-   Root Directory drifted to the repo root (`npm run build` then looked for
-   `/package.json` and installed Python instead). Root is `web/console`
-   again. Hard-refresh if the tab still looks like the old topbar.
-3. **No live Muttil North warning** — `/ops/summary` is 0/0/0 until you
-   Send. That is empty, not broken. Do not fake the KPIs.
-4. **Enable alerts on the phone, then Send.** After-the-fact permission
-   does not rewrite a queued delivery.
+1. **Worker is up** — `python run.py worker-cloud` against `.env.cloud`
+   (Neon + Upstash + FCM + Twilio). Leave that terminal open. Sleep = silent
+   queue. Set `PYTHONIOENCODING=utf-8` on Windows or a log line can kill the
+   process. Render’s worker service stays **suspended**.
+2. **Do not Send alert 6 again.** It is already active Extreme on Muttil
+   North. A second Send fans out more Twilio minutes and another IVR blast.
+3. **Help needed ≠ Send a runner.** Help needed is `assistance_case`
+   (someone asked for rescue). Send a runner is `human_relay` (the village
+   never got the warning). Ack / “Opened or answered” is not a reply.
+4. **Help while online is honest.** A failed Help POST says it was not
+   sent — tap again. Airplane mode shows the cached copy, not a fake
+   pending queue. See §10.5.
+5. **Hosted desk may still look like the old topbar** until the §7.6 files
+   are on `main` and Vercel Root Directory is `web/console`. Hard-refresh
+   after that deploy.
+6. **Trial IVR:** callee presses **any key** for Twilio’s trial lady, **then**
+   1 (safe) / 2 (help).
+7. **Citizen APK ≠ Chrome PWA.** Sideload
+   `mobile/citizen-apk/dist/SETU-citizen.apk` for a home-screen icon
+   (login survives app close). Enable alerts / Gate 3 still need
+   **Android Chrome → Add to Home Screen**. Push inside the WebView APK
+   is not a claim we can make. §7.7.
 
-Do these two, in order: citizen phone **Enable alerts** → officer A/B
-**Moderate on Muttil North** → Safe. Skip siren hardware, two-phone BLE,
-IVR, HF Space, cable-pull, `ml-load` (Moderate can stay English).
+### 23 Aug — SIH internal presentation (what is still loose)
 
-Live FCM credential authenticates against the real `setu-alerts` Firebase
-project; **live Twilio SMS proven end to end** — real `provider_accepted` (`twilio_sms_send`) followed by a real carrier callback writing `device_delivered` (`twilio_sms_webhook`) through an ngrok tunnel, HMAC-verified. Day-4 exit gate re-proven on a scratch DB: `upgrade head → downgrade 0006 → upgrade head` clean, and migration `0012` **fails loudly** with `PHONE_HASH_PEPPER` unset. `verify_seeds.py` now *fails* (not just reports) on empty `app_config` notes and on any alert with a NULL `incident_id`; both are at 0. Plus `test_officer_scope_covers_contained_village` (Vythiri officer → Muttil North 200; out-of-geom ADM5 403).
+The stack is live. Do **not** spend the morning writing new features.
+Rehearse the operational loop and name the gaps out loud. Skip list is
+the cut order, not shame:
+
+| Show | Skip / say so |
+|---|---|
+| Officer A/B Two-Eyes on a **new** Muttil warning (not alert 6) | Do not Send alert 6 again |
+| Citizen OTP / email login, village inbox, Safe + Help | Typed delivery ID |
+| SMS + IVR on the four verified SIMs (trial any-key then 1/2) | Nationwide SMS (no TRAI DLT) |
+| FCM after **Enable alerts** in Chrome PWA | FCM inside the sideload APK |
+| Help needed = trapped person; Give to team on the row | On foot as if it were the same queue |
+| Struck-through ladder rungs with the seeded reason | A flattering “88% delivered” |
+| Malayalam if `alert_translation` already has the row | Live HF Space / IndicTrans2 on stage |
+
+**Loose ends that can still kill the room** — all operational, all in
+this file’s 🔴/🟡:
+
+1. **`worker-cloud` terminal open**, `PYTHONIOENCODING=utf-8`, laptop
+   awake. Sleep = silent queue. Render worker stays suspended.
+2. **Recipient 5’s FCM token is dead.** Enable alerts on the presenting
+   Chrome PWA *before* the first Send of the day.
+3. **PWA “Pending” is often a lie.** If Help needed stays empty after
+   ack, tap Help again — do not wait for “as soon as there is a signal.”
+   🟡 still unfixed.
+4. **Hosted console** must be the §7.6 desk (Help needed vs Send a
+   runner). Confirm Vercel Root Directory is `web/console` and
+   hard-refresh. If it looks like the old topbar, the judges see the
+   confusion we already had.
+5. **Deploy `web/citizen` `localStorage` to Vercel** so the *website*
+   also survives a close. The APK shim covers the current bundle; the
+   hosted tab does not until that deploy.
+6. **Gate 3 cable-pull is unrehearsed.** Caching works; the physical
+   unplug has never been done. Either rehearse 10 min the night before
+   or drop it from the script.
+7. **Send a runner stays empty** unless a `human_relay` row exists.
+   Simulated siren on recipient 5 counted as delivered, so the chain
+   never opened a runner. Do not click On foot expecting the trapped
+   person. 🟡 auto-human-relay still unfixed — plant a pending runner
+   task if you need that screen.
+8. **Two-phone BLE (B10)** is probably impossible in a browser (§8.1).
+   Do not budget it for the morning. Signing + provenance chip exist;
+   say “one hop, not a mesh, Chromium-only” and move on.
+9. **Render cold start ~50 s** if the API slept 15 min. Hit `/health`
+   before anyone sits down. Keepalive workflow needs repo secrets
+   `API_URL` / `HF_SPACE_URL` — Space URL is still missing.
+10. **Twilio trial cap is 5 verified numbers.** Do not add a sixth.
+    Credit is finite; every extra Send burns minutes.
+11. **Dual-auth on two physical devices** and the **21-step recorded
+    take** have never been rehearsed. Internal presentation can show
+    the 409 `{have:1,need:2}` on one laptop + second login; do not
+    promise the choreographed 10× run.
+12. **Other villages** may show `consented_recipients: 0`. Muttil North
+    (8157) is the only live enrollment. Draw Muttil, not a random ADM3.
+
+Do this for a *new* warning only: citizen **Enable alerts** → officer A/B
+**Extreme on Muttil North** (en+ml, Two-Eyes) → worker sends SMS+IVR to every
+numbered phone and FCM when a token exists. Skip siren hardware, two-phone
+BLE, HF Space, cable-pull unless rehearsed. `ml-load` is optional if Malayalam is already in
+`alert_translation`.
+
+Live FCM authenticates against `setu-alerts`. **Live Twilio SMS + IVR proven
+end to end** on alert 6 (real SIDs, not simulated), including **IVR DTMF 1 =
+SAFE** and a later **PWA trapped** that opened `assistance_case` 1. Day-4
+exit gate was re-proven on 21 Aug on a scratch DB: `upgrade head → downgrade
+0006 → upgrade head` clean, and migration `0012` **fails loudly** with
+`PHONE_HASH_PEPPER` unset. `verify_seeds.py` *fails* (not just reports) on
+empty `app_config` notes and on any alert with a NULL `incident_id`. Plus
+`test_officer_scope_covers_contained_village` and
+`test_officer_assistance_lists_contained_village` (Vythiri officer → Muttil
+North 200; out-of-geom ADM5 403).
 
 **Six real defects the line-by-line Part 16 audit found, all fixed** (full write-up in `docs/IMPLEMENTATION.md` §6.13):
 
@@ -58,7 +138,7 @@ project; **live Twilio SMS proven end to end** — real `provider_accepted` (`tw
 3. **`PGCRYPTO_SYM_KEY` did not exist** — absent from `.env`, `.env.example`, `gen_secrets.py` and `check_env_example.py`. `_encrypt_phone()` silently returned NULL, so **20 CSV-imported recipients had `phone_enc IS NULL`** and could never receive SMS/IVR/email. 4 recovered from `data/enrollment/team.csv`; **16 are unrecoverable** (source CSV gone, `phone_hash` is one-way).
 4. **FCM sent a `notification` block on the webpush path**, which the browser tray consumes without ever running our service worker — so the receipt nonce never returned and the ladder could never advance past tier 1. Now data-only.
 
-**Test gaps closed:** B3 growth/jitter/escalation (16 tests, plus a committed `docs/evidence/backoff-2026-08-21.md` artifact); `STOP`/`opted_out_at` had **no test at all** despite being a consent guarantee; `geometry_non_empty` and `target_count_plausible` had no test in either direction (Day 5 wants all 6 rules with a passing *and* failing fixture); `GET /units/{id}/vulnerability`, `POST /response` and `POST /citizen/device` had no RBAC allow/deny pair (Day 10 wants one per Part 26 row); F4 had no "4th extreme is still delivered in full" test (Day 8). Citizen PWA signs in via `POST /api/v1/auth/login` (no pasted token). Officer scopes are assigned by name lookup (`python run.py provision-demo`). Console population/alerts/hazards are API-sourced; Compose does not default a severity. Model identities live in `app_config` (HF cards, registry names, versions). Shipping dedup is PostGIS spatial/temporal with measured P/R; MiniLM only vetoes a cluster when `/embed` returns real vectors. IndicTrans2 is registered only after a real `/translate` response. Reach-risk stays `is_bootstrap`. No invented translations or embeddings.
+**Test gaps closed:** B3 growth/jitter/escalation (16 tests, plus the captured backoff log in `docs/IMPLEMENTATION.md` §12.1); `STOP`/`opted_out_at` had **no test at all** despite being a consent guarantee; `geometry_non_empty` and `target_count_plausible` had no test in either direction (Day 5 wants all 6 rules with a passing *and* failing fixture); `GET /units/{id}/vulnerability`, `POST /response` and `POST /citizen/device` had no RBAC allow/deny pair (Day 10 wants one per Part 26 row); F4 had no "4th extreme is still delivered in full" test (Day 8). Citizen PWA signs in via `POST /api/v1/auth/login` (no pasted token). Officer scopes are assigned by name lookup (`python run.py provision-demo`). Console population/alerts/hazards are API-sourced; Compose does not default a severity. Model identities live in `app_config` (HF cards, registry names, versions). Shipping dedup is PostGIS spatial/temporal with measured P/R; MiniLM only vetoes a cluster when `/embed` returns real vectors. IndicTrans2 is registered only after a real `/translate` response. Reach-risk stays `is_bootstrap`. No invented translations or embeddings.
 
 > A green test run is not the same as a working system. Everything above was
 > re-verified against the real database, the real feeds and real providers —
@@ -77,13 +157,13 @@ project; **live Twilio SMS proven end to end** — real `provider_accepted` (`tw
 | Citizen PWA | Vercel | https://setucitizen.vercel.app |
 | Officer console | Vercel | https://setuconsole.vercel.app |
 | API | Render free web | https://setu-api-6ujx.onrender.com |
-| Postgres + PostGIS | Neon (Singapore) | at `0014`, 8,302 units, 4 recipients |
+| Postgres + PostGIS | Neon (Singapore) | at `0016`, 8,302 units, 5 Muttil North recipients (4 phones + 1 PWA) |
 | Redis Streams | Upstash (Singapore) | probe read + acked |
 | Delivery worker | **local** → cloud | `python run.py worker-cloud` |
 | ML / translations | HF Space | ❌ not deployed |
 
 **Total cost: ₹0.** Full write-up and the nine deployment failures in
-`docs/IMPLEMENTATION.md` §6.14; step-by-step runbook in `docs/DEPLOY.md`.
+`docs/IMPLEMENTATION.md` §6.14; step-by-step runbook in §10 of the same file.
 
 ⚠️ **The worker runs on a laptop.** Render's free tier has no background
 workers, so `setu-worker` is suspended there. Keep the `worker-cloud` terminal
@@ -99,24 +179,31 @@ verified. What remains needs something no amount of code can supply.
 
 | Task | Blocked on | Effort |
 |---|---|---|
-| **Real FCM `provider_accepted`** | **One tap.** Open the PWA on an Android, sign in, "Enable alerts on this phone", grant the prompt. `SELECT COUNT(*) FROM delivery_event WHERE source='fcm_send'` is still **0** — the primary channel is the last unproven one, and this is Day 4's exit gate | 5 min |
 | Gate 3 cable-pull | Install to home screen, airplane mode, reopen. Caching is verified working; the physical beat is unrehearsed | 10 min |
-| Real IVR call + DTMF (B6) | A human to answer and press digits. Voice costs several × an SMS | 15 min |
-| Real B9 relay confirmation | Same. All 31 `relay_confirmation` rows are `method='http'`; the `ivr_dtmf` path has **never** run | 15 min |
-| Twilio console webhooks | Point `sms-inbound` / `sms-status` at the Render URL. Until then E4's live `REGISTER` cannot fire | 2 min |
-| More verified numbers | Only 1 verified caller ID. Spec wants 6–8. Verification is free; only sends cost | 15 min |
-| Worker not hosted | Render Starter ≈ $7/mo, or fold the consumer into the API process | decision |
-| Real translations (C3) | HF Space with `SETU_LOAD_ML_MODELS=1`. Cache is English-only, so every non-English recipient gets the honest fallback notice. **Demo-optional** — Part 22 says the demo reads cache and never calls the Space live | 20 min |
+| Real B9 relay confirmation via **IVR DTMF** | HTTP confirm exists and was used. All prior `relay_confirmation` rows were `method='http'`; the `ivr_dtmf` runner path has **never** run | 15 min |
+| Twilio console webhooks | Point `sms-inbound` / `sms-status` at the Render URL (status may already be ngrok/local). Until Render is the inbound URL, live `REGISTER` from SMS cannot fire in production | 2 min |
+| Worker not hosted | Render Starter ≈ $7/mo, or fold the consumer into the API process. Laptop `worker-cloud` is the demo path | decision |
+| Real translations hosted (C3) | HF Space with `SETU_LOAD_ML_MODELS=1`. Laptop `ml-load` + `worker-cloud` already wrote Malayalam for alert 6. **Demo-optional** — Part 22 says the demo reads cache and never calls the Space live | 20 min |
 | Monitoring | `SLACK_OR_DISCORD_ALERT_WEBHOOK` is empty. Nothing reports the worker dying | 5 min |
 | Email channel | Brevo or Resend API key | 5 min |
-| **Decision:** is B10 buildable? | ~20 min Web Bluetooth spike on two Androids. §8.1 says no browser exposes the GATT *peripheral* role, so it may be impossible as specced — **spike before budgeting any engineering time.** Cut order already ranks it #4 to drop | 20 min |
+| **Decision:** is B10 buildable as Bluetooth? | No browser GATT peripheral. Demo path is a signed `?peer=` URL (§8.1, §10.5). Native BLE is still cut-order #4 | done (URL fallback) |
 
-### Two artifacts blocked on nothing
+**Unblocked 22 Aug (do not put these back in 🔴):**
 
-- **Four-tile DEM pass/fail log** (Part 19 #25) — terrain data is loaded
-  (`unit_features`, 1,375 rows) but the dated artifact was never written.
-- **Redis command-budget check** (Part 19 #12) — never measured, and B3 added a
-  `ZADD` per failed delivery, so §1.4's arithmetic is stale regardless.
+- Real FCM `provider_accepted` (`fcm_send`) on alert 6 recipients 1, 3, 4.
+- Real IVR call + DTMF 1 (SAFE) on alert 6 delivery 8.
+- Four Twilio trial verified numbers (`+917988243529`, `+919711117266`,
+  `+918797975654`, `+919319277596`). Trial cap is 5; do not add more
+  without a paid number.
+- Citizen sideload APK (`python run.py citizen-apk`). Session survives
+  app close. Push still Chrome PWA, not the WebView.
+
+**Artifacts that looked blocked and are not:**
+
+- Four-tile DEM log — `docs/IMPLEMENTATION.md` §12.3 (Part 19 #25).
+- Redis command-budget — `docs/IMPLEMENTATION.md` §12.2, **4.08×**
+  not 5× (Part 19 #12). Stop the worker between rehearsals; idle `ZPOPMIN`
+  is the cost.
 
 ### Known data loss, unrecoverable
 
@@ -128,14 +215,16 @@ whatever original list they came from.
 ## 🟡 Ready to build — nothing external blocking these
 
 - [x] **`python run.py demo`** — Part 19 gate exists (`guard_local_only` → migrate → seed board if needed → load/verify snapshot). Needs local geometry; honcho is optional
-- [ ] **Neon enrollment import** — `consented_recipients: 0` on Neon; `python run.py import-enrollment` now exits 1 if `data/enrollment/` has no CSV (will not invent recipients). Generate with `scripts/generate_enrollment_template.py` then fill real consented rows.
-- [x] **C3 translation cache** — API writes `alert_translation` via `/translate` when `HF_SPACE_URL` is set; PWA/IVR/relay fall back with a visible notice. Weights stay off the API (`SETU_LOAD_ML_MODELS=1` only on `services.ml.server`). Space still not deployed — laptop path is `python run.py ml-load` plus `worker-cloud` / `translate-cloud` (defaults `HF_SPACE_URL` to `:8001`). Server now uses IndicTransToolkit + FLORES tags; raw `generate()` was not Malayalam.
+- [ ] **PWA help POST honesty** — `web/citizen/src/App.tsx` `sendResponse` treats `TypeError` as offline and paints “Saved. Will send as soon as there is a signal” with **no in-page queue**. Ack can succeed and Help needed stay empty. Retry + honest error; do not claim queued. §6.18
+- [ ] **Auto `human_relay` when siren is simulated** — recipient 5’s simulated siren counted as delivered, so `on_channels_exhausted` never opened a runner task. Extreme should still spend a human when the last *real* channel failed. §6.18
+- [ ] **Neon enrollment import** — Muttil has 5 live recipients; other villages may still show `consented_recipients: 0`. `python run.py import-enrollment` exits 1 if `data/enrollment/` has no CSV. Generate with `scripts/generate_enrollment_template.py` then fill real consented rows.
+- [x] **C3 translation cache** — API writes `alert_translation` via `/translate` when `HF_SPACE_URL` is set; PWA/IVR/relay fall back with a visible notice. Weights stay off the API (`SETU_LOAD_ML_MODELS=1` only on `services.ml.server`). Space still not deployed — laptop path is `python run.py ml-load` plus `worker-cloud` / `translate-cloud` (defaults `HF_SPACE_URL` to `:8001`). Server now uses IndicTransToolkit + FLORES tags; raw `generate()` was not Malayalam. Alert 6 shipped with en+ml.
 - [x] **Dedup P/R on held-out set** — 200 labelled pairs in `data/ml/dedup_heldout.json`; shuffled 25% published to `model_registry` and Methodology
 - [x] **axe-core on four new screens** — `web/console` `npm run test:a11y` reads TSX sources then runs axe; AssuranceLadder still announces “not applicable”
 - [x] **Part 38 hardcoding three-pass** — Python AST + SQL VIEW comparisons + TS `relay`/`verify`/`response`/`sw`; `tests/unit/test_twiml_has_no_literals.py`
 - [x] **Offline basemap extract** — `python run.py fetch-basemap` (go-pmtiles). Current extract is India bbox `68,6,98,38`, **maxzoom 6**, ~2.6 MB at `web/console/public/tiles/setu-basemap.pmtiles`. LiveMap attaches `earth`/`water`/`roads` after style load (a failed vector source cannot block the choropleth). Spec still wants Wayanad+Palghar z12; Gate 3 **cable-pull is unrehearsed**. Place-name glyphs use a CDN when online; village names are HTML labels and work without glyphs.
 - [x] **Assign real `unit_scope_id` to officer accounts** — `python run.py provision-demo` ILIKE-looks up `demo.unit_scope.<email>` after geometry load (and at the end of `python run.py demo`). Seed SQL still leaves ids NULL on purpose.
-- [x] **Citizen PWA login** — light sign-in against `POST /api/v1/auth/login`; session + refresh in `sessionStorage`. `VITE_CITIZEN_ACCESS_TOKEN` remains an override, not the demo path. Receipts stay nonce-gated. Dev server is **`:5174`** (`python run.py citizen-dev`); console is **`:5173`**.
+- [x] **Citizen PWA login** — light sign-in against `POST /api/v1/auth/login`; session + refresh in **`localStorage`** (migrates leftover `sessionStorage` on first load so a closed APK / installed PWA stays signed in). Hosted path is OTP (`/auth/citizen/otp/request|verify`). `VITE_CITIZEN_ACCESS_TOKEN` remains an override, not the demo path. Receipts stay nonce-gated. Dev server is **`:5174`** (`python run.py citizen-dev`); console is **`:5173`**. Sideload APK: `python run.py citizen-apk`.
 - [x] **`python run.py ml`** — isolated `services.ml.server` on :8001. Weights load only if `SETU_LOAD_ML_MODELS=1` and the HF ids match. Production Space still 🔴.
 
 ## 🟢 Done
@@ -145,7 +234,7 @@ whatever original list they came from.
 - [x] Repo initialized, `.gitignore`, venv on Python 3.12.1
 - [x] `requirements.txt` pinned (169 packages, PyNaCl included, zero torch/transformers in API)
 - [x] `infra/docker-compose.yml` — Postgres+PostGIS (port 5433), Redis, MailHog, all healthy
-- [x] Migrations `0001`–`0012` written and applied; round-tripped clean (local + Neon schema)
+- [x] Migrations `0001`–`0016` written and applied; round-tripped clean (local + Neon schema; 0015 citizen OTP, 0016 reachability excludes sim)
 - [x] Seed files `01`–`05` written and applied locally
 - [x] Bootstrap scripts: `bootstrap_neon.py`, `bootstrap_local_data.py`, `env_loader.py`,
       `verify_data_layer.py`, `import_enrollment_csv.py`, `generate_enrollment_template.py`,
@@ -167,7 +256,16 @@ whatever original list they came from.
 ### Application — backend (roadmap Day 4–6 slice)
 
 - [x] **Delivery core:** state machine, assurance, audit ledger, worker (Redis Streams),
-      sim fallback when real adapters raise `ChannelUnavailable`
+      sim fallback when real adapters raise `ChannelUnavailable`. Extreme Send
+      inserts SMS+IVR for every numbered phone and FCM when a token exists;
+      `process_recipient` sends **every** pending channel, not `LIMIT 1`. FCM
+      `device_unregistered` fails honestly (never simulated). Windows worker
+      needs `PYTHONIOENCODING=utf-8` (§6.18)
+- [x] **Ack ≠ reply ≠ Help needed.** `POST /ack` is a receipt.
+      `citizen_response` is the human answer. `assistance_case` opens only for
+      help types. SAFE (IVR 1 / PWA Safe / SMS SAFE) does not open a case.
+      Extreme sends SMS+IVR+FCM at once; **Severe uses the same channels but
+      waits** (`escalation_policy.wait_before_next_s`) between them.
 - [x] **Real channel adapters (env-gated):** FCM, SMS, IVR, email — fall back to sim when creds absent
 - [x] **Twilio webhooks:** `sms-inbound`, `sms-status`, `ivr-status` (HMAC-verified)
 - [x] **Alert signing:** Ed25519 in worker `build_message()`; public key via `GET /public/signing-key`
@@ -195,17 +293,18 @@ whatever original list they came from.
 - [x] Vite + React + Workbox (`injectManifest`, `src/sw.ts`)
 - [x] Config from `GET /api/v1/public/config` — no hardcoded PWA timeouts, free-text cap, or C6 labels
 - [x] Push → receipt; notification click → `notification_opened` + open delivery
-- [x] Offline Background Sync for ack, response, receipt
+- [x] Offline Background Sync for ack, response, receipt — **the in-page “Pending” banner is still a lie** when `POST /response` fails online (🟡 above)
 - [x] UI: light-first, 18px body, 44px targets; Safe / Help equally weighted; help types from config
 - [x] Location asked only for types in `response.location_prompt_types`; declining still files the case
-- [x] Manual delivery ID entry (works without Firebase for dev/test)
+- [x] Village inbox without a typed delivery ID (OTP / email login). Manual ID remains a fallback, not the demo path.
+- [x] Sideload APK of the hosted PWA (`mobile/citizen-apk/`, not Play Store). Login persists across app close. Enable alerts is still Chrome.
 - [x] `npm run build` passes · `python run.py citizen-dev` → `:5174`
 
 ### Application — operations console (`web/console/`)
 
-- [x] Vite + React 19 + TS, dark-first, ~2,000 lines. Built to Part 0.4 / 0.5 / 11
+- [x] Vite + React 19 + TS, dark-first. Built to Part 0.4 / 0.5 / 11
       and **verified in a live browser against the running API**, not assumed —
-      see `docs/IMPLEMENTATION.md` §7
+      see `docs/IMPLEMENTATION.md` §7 and **§7.6** (22 Aug readable desk)
 - [x] Design tokens: exact 11.1 palette with measured contrast ratios recorded;
       angular corner-cut panels (`clip-path`, `border-radius: 0`); JetBrains Mono
       + `tabular-nums` on every number; glow on **extreme only**, suppressed
@@ -222,7 +321,8 @@ whatever original list they came from.
 - [x] MapLibre live map with reachability choropleth; local Protomaps extract (`earth`/`water`/`roads`, India z6) so the pane is not a black box. Worker is `maplibre-gl/dist/maplibre-gl-worker.mjs?url` (Vite prebundle 404 otherwise). `.live-map { height: 520px }` is required — MapLibre's canvas is `position:absolute`, so a heightless wrapper collapses to 0px
 - [x] **D1f is reachability, not a hazard overlay.** Active-alert polygons are not painted on Live Ops. The officer draws the area on Compose (A3). Incoming USGS/GDACS/nowcast/manual rows are the Live Ops table + Compose **Incoming sources** list (`GET /api/v1/alerts`)
 - [x] **Scoped officer map is ADM5.** `GET /api/v1/ops/map` uses the officer's unit envelope, then the finest `admin_unit.level` in that envelope (villages for Vythiri). Features are clipped to the officer **geom**, not the bbox, so neighbouring taluks are not clickable. HTML labels name every village (cap 80). Nationwide/unscoped choropleth stays `map.geometry_level` (ADM3)
-- [x] **Officer scope is geographic.** `admin_unit.parent_id` is NULL on all 8,302 rows, so the recursive `parent_id` walk never sees Muttil North under Vythiri. `assert_unit_in_scope` also allows `ST_Intersects(scope.geom, target.geom)`. `tests/unit/test_rbac.py::test_officer_scope_covers_contained_village` covers allow (8157) and deny (an ADM5 outside Vythiri)
+- [x] **Officer scope is geographic.** `admin_unit.parent_id` is NULL on all 8,302 rows, so the recursive `parent_id` walk never sees Muttil North under Vythiri. `assert_unit_in_scope` **and** `list_cases` / `GET /assistance/summary` allow `ST_Intersects(scope.geom, target.geom)`. Neon row 8157 was also parented to 3081 so the already-deployed Render query could see case 1. `tests/unit/test_rbac.py::test_officer_scope_covers_contained_village` and `test_officer_assistance_lists_contained_village` cover allow (8157) and deny (an ADM5 outside Vythiri)
+- [x] **Help needed vs Send a runner.** Queue types the team on the row; runner empty-state is honest; Live Ops ack KPI is “Opened or answered”; ReplyInbox is three KPIs. Hosted Vercel needs a push of those files (§7.6)
 - [x] **No fabricated population / alerts / hazards in the console.** Those figures render from the API (`v_reachability`, `alert`, officer-drawn GeoJSON). Compose does not default severity or headline; a village with NULL population shows "no population"
 - [x] Optimistic UI banned — every mutation re-reads from the API
 - [x] Two real bugs found by running it: ladder sampling buried the siren ladder;
@@ -231,7 +331,7 @@ whatever original list they came from.
 ## ⚪ Not started, lower priority for now
 
 - [ ] Design tokens (`packages/tokens`) — currently console-local CSS matching Part 11.1
-- [ ] B9 live Twilio relay call (adapter + DTMF path exist; needs verified numbers)
+- [ ] B9 live Twilio relay **DTMF** confirm (HTTP confirm exists; `ivr_dtmf` path unused)
 - [ ] B10 two-Android GATT demo (signing + PWA share path exist; Chrome has no GATT peripheral)
 - [ ] 21-step recorded Gate 4 take
 - [ ] Freeze demo + `nightly-20260821`; Days 12–13 rehearsal/load test
@@ -242,18 +342,20 @@ whatever original list they came from.
 ## Roadmap position (spec Part 16)
 
 Audited line by line on 21 Aug 2026 against the real system — DB, code and
-tests — not against this file's own previous claims.
+tests — not against this file's own previous claims. **22 Aug live Extreme
+(alert 6) is recorded in §6.18**; Day 4/5 footnotes below were updated that
+day so they do not still say FCM and IVR are unproven.
 
 | Day | Theme | Status |
 |---|---|---|
-| Day 4 | Migrations, delivery core, F1, ingestion | ✅ **Exit gate re-proven.** Round-trip clean on a scratch DB; `0012` fails loudly without the pepper; `app_config` empty notes 0; NULL `incident_id` 0. All 6 F1 rules real. ⚠️ "real non-mock `provider_accepted`" is met for **SMS**, not FCM (`fcm_send` = 0) |
-| Day 5 | F3, C6, D7f/D8f, B8 webhooks, E4 | ✅ All 6 rules now have pass+fail tests. **Real SMS → real `device_delivered`** via Twilio callback. **B3 retry/escalation now actually runs** (was dead code — see §6.13). D7f both denominators verified (unit 5179: 38.2% recipients / 1.5% population). Idempotency index + C6 CHECK constraint confirmed. ⚠️ Real push and real IVR still unproven |
+| Day 4 | Migrations, delivery core, F1, ingestion | ✅ **Exit gate re-proven 21 Aug.** Round-trip clean on a scratch DB; `0012` fails loudly without the pepper; `app_config` empty notes 0; NULL `incident_id` 0. All 6 F1 rules real. **22 Aug:** real non-mock `provider_accepted` is met for **SMS, IVR, and FCM** on alert 6 |
+| Day 5 | F3, C6, D7f/D8f, B8 webhooks, E4 | ✅ All 6 rules now have pass+fail tests. **Real SMS → real `device_delivered`** via Twilio callback. **B3 retry/escalation now actually runs** (was dead code — see §6.13). D7f both denominators verified (unit 5179: 38.2% recipients / 1.5% population). Idempotency index + C6 CHECK constraint confirmed. **22 Aug:** real push (`fcm_send`) and real IVR + DTMF 1 proven on alert 6. B9 `ivr_dtmf` *relay confirm* still unused |
 | Day 6 | F2, D10f, citizen PWA, console, Gate 3 | ✅ `alert_one_active_per_incident_uix` + `audit_immutable` confirmed live. **`alert.approved` / `alert.validation_failed` now actually written** (they never were). D12f stores 7 named factors. **Gate-3 offline caching now works on the dev server** (SW fix). ⚠️ Physical cable-pull still unrehearsed |
 | Day 7 | D11f, E4, B10 transport, D13f | ✅ D11f stores all 5 factors + weights + `weight_version`. E4 rate-limited + HMAC-verified, and `STOP` → `opted_out_at` → never-enqueued is now tested end to end. D13f publishes p10/p50/p90 **and** `coverage_pct` + seismic exclusion reason. ⚠️ B10 two-device never run; live keyword blocked on console webhook config |
 | Day 8 | F4, assignment, device decision, board data, snapshot | ✅ F4 **cannot** suppress by construction, now with the Day-8 test that proves it. Both `assistance_case` CHECKs confirmed. Board router has no business-logic literals. 24 snapshot tables, final snapshot cut |
 | Day 9 | Gate 4 integration run | 🟡 Coverage gate **re-run and passing at 95.87%** (up from 95.71% with B3's tests). `authoritative_source` provenance present in `alert_approval`. Retry-backoff evidence artifact committed. **21-step recorded take not done** — needs 6 people + hardware |
 | Day 10 | Command Board UI, after-action, RBAC, axe | ✅ `CommandBoard.tsx` grep clean. RBAC now **140 tests**, every Part 26 row with allow+deny. `npm run test:a11y` re-run → clean. Hardcoding guard confirmed to cover `governance/` + `response/` |
-| Day 11 | Freeze | 🟡 `freeze-guard.yml` guards all Day-11 paths, epoch 21 Aug 21:00 IST. Final snapshot committed ✅ (and re-cut after 69 fabricated translations were purged from it), `nightly-20260821` tag cut ✅, Part 19 walked ✅ (`docs/PART19-DOD.md`). Post-freeze block cannot be demonstrated until the epoch passes |
+| Day 11 | Freeze | 🟡 `freeze-guard.yml` guards all Day-11 paths, epoch 21 Aug 21:00 IST. Final snapshot committed ✅ (and re-cut after 69 fabricated translations were purged from it), `nightly-20260821` tag cut ✅, Part 19 walked ✅ (`docs/IMPLEMENTATION.md` §11). Post-freeze block cannot be demonstrated until the epoch passes |
 | — | **Deploy** *(not a roadmap day)* | ✅ Vercel + Render + Neon + Upstash live at ₹0, verified end to end. Worker runs locally (`worker-cloud`) because Render free has no background workers. HF Space not deployed — use `ml-load` + `translate-cloud` on the laptop so IndicTrans2 still writes real cache rows |
 | Day 12–13 | Rehearsal | ⚪ Not started — every item needs humans or hardware |
 
@@ -280,6 +382,7 @@ python run.py ingest
 python run.py demo                 # Part 19 gate: load snapshot, provision scopes, then unplug
 python run.py fetch-basemap        # Protomaps extract into web/console/public/tiles/
 python run.py citizen-dev          # :5174 (console is :5173)
+python run.py citizen-apk          # sideload APK (Docker; not Play Store)
 python -m pytest tests/ -q
 python scripts/check_no_hardcoding.py
 python scripts/check_pwa_config.py
@@ -288,16 +391,21 @@ python scripts/gen_pwa_icons.py                           # regenerate citizen P
 ```
 
 **Demo-day order.** The worker is the one piece that is not hosted, so it is the
-one piece you have to remember:
+one piece you have to remember. **Do not Send alert 6 again.**
 
 ```powershell
-python run.py ml-load            # KEEP OPEN — IndicTrans2 on :8001
-python run.py worker-cloud       # KEEP OPEN — sends FCM + fills translations
+$env:PYTHONIOENCODING = "utf-8"
+python run.py ml-load            # KEEP OPEN — IndicTrans2 on :8001 (optional if ml already cached)
+python run.py worker-cloud       # KEEP OPEN — sends SMS + IVR + FCM
 ```
 
 On the citizen phone (or localhost Chrome): sign in, tap **Enable alerts**,
-then send. Push permission after the fact does not rewrite an already-queued
-delivery.
+then send a **new** warning. Push permission after the fact does not rewrite
+an already-queued delivery. Trial IVR: any key, then 1 or 2.
+
+Officers: `officer.a@setu.example` / `officer.b@setu.example` (Vythiri).
+Help needed = trapped person → assign team. Send a runner = village unreached
+→ “I told people in person.”
 
 Everything else — API, PWA, ops console, database, queue — is already running
 in the cloud. Render `CORS_ALLOWED_ORIGINS` must include both Vercel origins

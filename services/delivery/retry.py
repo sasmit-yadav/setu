@@ -170,6 +170,95 @@ async def schedule_retry(
     return due
 
 
+async def is_held_for_later(
+    redis: Redis, delivery_id: int, *, now: float | None = None
+) -> bool:
+    """True when this delivery is on zset:retry and not due yet.
+
+    Severe phone-blast rows sit here until the previous channel's
+    wait_before_next_s has elapsed. The worker must not send them on the
+    first fan-out pass.
+    """
+    score = await redis.zscore(keys.zset_retry(), str(delivery_id))
+    if score is None:
+        return False
+    cutoff = now if now is not None else time.time()
+    return float(score) > cutoff
+
+
+async def hold_staggered_channels(
+    conn: asyncpg.Connection, redis: Redis, alert_id: int
+) -> dict[int, float]:
+    """Hold every channel after the first so Severe does not fire like Extreme.
+
+    Extreme inserts the same SMS+IVR+FCM set and sends them immediately.
+    Severe inserts that set then parks later channels on zset:retry. Delay
+    before channel N is the sum of wait_before_next_s on the preceding
+    policy steps (attempt 1, no jitter — a demo stagger must be the seeded
+    wait, not a random draw).
+
+    Returns {delivery_id: delay_s} for the held rows.
+    """
+    severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
+    if str(severity) != "severe":
+        return {}
+    policy_rows = await conn.fetch(
+        """
+        SELECT channel_id, step_order, wait_before_next_s
+        FROM escalation_policy
+        WHERE severity = $1
+        """,
+        str(severity),
+    )
+    wait_by_channel = {
+        int(row["channel_id"]): int(row["wait_before_next_s"]) for row in policy_rows
+    }
+    order_by_channel = {int(row["channel_id"]): int(row["step_order"]) for row in policy_rows}
+    unknown_order = 0
+    for row in policy_rows:
+        unknown_order = max(unknown_order, int(row["step_order"]))
+    unknown_order = unknown_order + 1
+
+    pending = await conn.fetch(
+        """
+        SELECT d.id, d.recipient_id, d.channel_id
+        FROM delivery d
+        JOIN channel c ON c.id = d.channel_id
+        WHERE d.alert_id = $1 AND d.state = 'pending' AND d.attempt = 1
+          AND c.code = ANY($2::text[])
+        """,
+        alert_id,
+        ["sms", "ivr", "fcm"],
+    )
+    by_recipient: dict[int, list[tuple[int, int]]] = {}
+    for row in pending:
+        by_recipient.setdefault(int(row["recipient_id"]), []).append(
+            (int(row["id"]), int(row["channel_id"]))
+        )
+
+    held: dict[int, float] = {}
+    for group in by_recipient.values():
+        ordered = sorted(
+            group,
+            key=lambda item: (order_by_channel.get(item[1], unknown_order), item[0]),
+        )
+        elapsed = 0.0
+        previous_wait: int | None = None
+        for index, (delivery_id, channel_id) in enumerate(ordered):
+            if index > 0 and previous_wait is not None:
+                delay = compute_delay_s(
+                    1,
+                    wait_before_next_s=previous_wait,
+                    backoff_multiplier=1,
+                    jitter_ms=0,
+                )
+                elapsed = elapsed + delay
+                await schedule_retry(redis, delivery_id, elapsed)
+                held[delivery_id] = elapsed
+            previous_wait = wait_by_channel.get(channel_id, previous_wait)
+    return held
+
+
 async def due_delivery_ids(
     redis: Redis, *, now: float | None = None, limit: int = 100
 ) -> list[int]:

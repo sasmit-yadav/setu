@@ -337,7 +337,15 @@ export interface MapPayload {
 export interface PreviewResponse {
   alert_id: number;
   recipient_count: number;
-  units: Array<{ unit_id: number; name: string; recipients: number }>;
+  estimated_population?: number | null;
+  building_count?: number | null;
+  units: Array<{
+    unit_id: number;
+    name: string;
+    recipients: number;
+    estimated_population?: number | null;
+    building_count?: number | null;
+  }>;
 }
 
 export interface Reachability {

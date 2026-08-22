@@ -28,13 +28,17 @@ function factorWidth(value: number): string {
   return `${Math.round(clamped * 100)}%`;
 }
 
+function urgency(score: number): string {
+  return String(Math.round(score * 100));
+}
+
 export function AssistanceQueue() {
   const { t } = useT();
   const [rows, setRows] = useState<AssistanceCase[]>([]);
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [team, setTeam] = useState("");
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
 
@@ -63,9 +67,14 @@ export function AssistanceQueue() {
   const sequence = csv(cfg, "assistance.status_sequence");
 
   async function assign(id: number) {
+    const team = (drafts[id] ?? "").trim();
+    if (!team) {
+      setError(t("queue.needTeam"));
+      return;
+    }
     setBusyId(id);
     try {
-      await endpoints.assignCase(id, team.trim());
+      await endpoints.assignCase(id, team);
       await load();
     } catch {
       setError(t("queue.assignFail"));
@@ -81,7 +90,7 @@ export function AssistanceQueue() {
     try {
       await endpoints.patchCase(row.id, {
         status: next,
-        assigned_team: row.assigned_team ?? team.trim(),
+        assigned_team: row.assigned_team ?? (drafts[row.id] ?? "").trim(),
       });
       await load();
     } catch {
@@ -104,18 +113,11 @@ export function AssistanceQueue() {
           <p className="screen__kicker">{t("queue.kicker")}</p>
           <h2>{t("queue.title")}</h2>
         </div>
-        <label className="field queue__team">
-          <span>{t("queue.team")}</span>
-          <input
-            value={team}
-            onChange={(e) => setTeam(e.target.value)}
-            placeholder={t("queue.teamPh")}
-          />
-        </label>
         <button className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
           <RefreshCw size={14} aria-hidden /> {t("live.refresh")}
         </button>
       </header>
+      <p className="lede">{t("queue.lede")}</p>
 
       <section className="kpis" aria-label={t("queue.open")}>
         <Kpi label={t("queue.open")} value={openCount} tone={openCount ? "warn" : "ok"} />
@@ -156,11 +158,12 @@ export function AssistanceQueue() {
               <div key={row.id}>
                 <div className={`table__row queue__row${first ? " is-first" : ""}`} role="row">
                   <button
-                    className="mono kpi__value queue__score"
+                    className="queue__score"
                     onClick={() => setOpenId(openId === row.id ? null : row.id)}
                     aria-expanded={openId === row.id}
+                    title={t("queue.colPriority")}
                   >
-                    {row.priority_score.toFixed(2)}
+                    {urgency(row.priority_score)}
                   </button>
                   <span>
                     {typeLabel(cfg, row.response_type)}
@@ -168,17 +171,32 @@ export function AssistanceQueue() {
                   </span>
                   <span>{row.channel_code ? viaLabel(t, row.channel_code) : t("common.nA")}</span>
                   <span>{row.unit_name}</span>
-                  <span className={`status-chip status-chip--${row.status}`}>
-                    {lookup(t, "case", row.status)}
+                  <span>
+                    <span className={`status-chip status-chip--${row.status}`}>
+                      {lookup(t, "case", row.status)}
+                    </span>
+                    {row.assigned_team ? (
+                      <span className="muted"> · {row.assigned_team}</span>
+                    ) : null}
                   </span>
                   {row.status === "new" ? (
-                    <button
-                      className="btn btn--approve"
-                      disabled={busyId === row.id || !team.trim()}
-                      onClick={() => void assign(row.id)}
-                    >
-                      {busyId === row.id ? t("queue.assigning") : t("queue.assign")}
-                    </button>
+                    <div className="queue__do">
+                      <input
+                        value={drafts[row.id] ?? ""}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))
+                        }
+                        placeholder={t("queue.teamPh")}
+                        aria-label={t("queue.team")}
+                      />
+                      <button
+                        className="btn btn--approve"
+                        disabled={busyId === row.id || !(drafts[row.id] ?? "").trim()}
+                        onClick={() => void assign(row.id)}
+                      >
+                        {busyId === row.id ? t("queue.assigning") : t("queue.assign")}
+                      </button>
+                    </div>
                   ) : next ? (
                     <button
                       className="btn"
@@ -187,7 +205,9 @@ export function AssistanceQueue() {
                     >
                       {lookup(t, "case", next)}
                     </button>
-                  ) : null}
+                  ) : (
+                    <span className="muted">{t("common.nA")}</span>
+                  )}
                 </div>
                 {openId === row.id && (
                   <div className="queue__factors">

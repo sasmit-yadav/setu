@@ -12,7 +12,6 @@ import {
 } from "../lib/api";
 import { lookup, useT } from "../lib/i18n";
 import { SeverityBadge } from "../components/SeverityBadge";
-import { ProvenanceChip } from "../components/ProvenanceChip";
 import { Kpi } from "../components/Kpi";
 import { LiveMap } from "../components/LiveMap";
 import { ReplyInbox } from "../components/ReplyInbox";
@@ -101,7 +100,7 @@ export function LiveOps({
   const virtualizer = useVirtualizer({
     count: alerts.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 48,
+    estimateSize: () => 56,
     overscan: 12,
   });
 
@@ -128,12 +127,6 @@ export function LiveOps({
         </p>
       </header>
 
-      <ol className="steps" aria-label={t("live.steps")}>
-        <li>{t("live.step1")}</li>
-        <li>{t("live.step2")}</li>
-        <li>{t("live.step3")}</li>
-      </ol>
-
       <div className="trouble" aria-label={t("live.trouble")}>
         <span className="trouble__label muted">{t("live.trouble")}</span>
         {liveAlerts.length === 0 ? (
@@ -154,30 +147,27 @@ export function LiveOps({
         )}
       </div>
 
+      {official.length > 0 ? (
       <section className="inbox panel" aria-label={t("live.officialTitle")}>
         <p className="screen__kicker">{t("live.officialTitle")}</p>
         <p className="lede">{t("live.officialHint")}</p>
-        {official.length === 0 ? (
-          <p className="muted">{t("live.officialEmpty")}</p>
-        ) : (
-          <ul className="inbox__list">
-            {official.map((row) => (
-              <li key={row.id}>
-                <button type="button" className="inbox__row" onClick={() => onOpen(row.id)}>
-                  <SeverityBadge severity={row.severity} />
-                  <span className="inbox__head">{row.headline}</span>
-                  <ProvenanceChip kind="authoritative" />
-                  <span className="muted">{row.source_id}</span>
-                  <span className={`status status--${row.lifecycle_status}`}>
-                    {lookup(t, "life", row.lifecycle_status)}
-                  </span>
-                  <span className="inbox__go">{t("live.officialOpen")}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="inbox__list">
+          {official.map((row) => (
+            <li key={row.id}>
+              <button type="button" className="inbox__row" onClick={() => onOpen(row.id)}>
+                <SeverityBadge severity={row.severity} />
+                <span className="inbox__head">{row.headline}</span>
+                <span className="muted">{row.source_id}</span>
+                <span className={`status status--${row.lifecycle_status}`}>
+                  {lookup(t, "life", row.lifecycle_status)}
+                </span>
+                <span className="inbox__go">{t("live.officialOpen")}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </section>
+      ) : null}
 
       {summary && (
         <section className="kpis" aria-label={t("live.kpis")}>
@@ -224,7 +214,6 @@ export function LiveOps({
         </div>
         <section className="panel table live-table" aria-label={t("live.table")} role="table">
           <div className="table__head" role="row">
-            <span role="columnheader">{t("live.colId")}</span>
             <span role="columnheader">{t("live.colSeverity")}</span>
             <span role="columnheader">{t("live.colHeadline")}</span>
             <span role="columnheader">{t("live.colSource")}</span>
@@ -254,13 +243,9 @@ export function LiveOps({
                     role="row"
                     type="button"
                   >
-                    <span className="mono muted">{a.id}</span>
                     <SeverityBadge severity={a.severity} />
                     <span className="table__headline">{a.headline}</span>
-                    <span className="muted table__source">
-                      {a.source_id}
-                      {a.is_authoritative && <ProvenanceChip kind="authoritative" />}
-                    </span>
+                    <span className="muted table__source">{a.source_id}</span>
                     <span className={`status status--${a.lifecycle_status}`}>
                       {lookup(t, "life", a.lifecycle_status)}
                     </span>

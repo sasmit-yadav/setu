@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import asyncpg
@@ -10,6 +9,33 @@ from redis.exceptions import RedisError
 from services.api.settings import settings
 from services.audit.ledger import append_audit
 from services.delivery.keys import keys
+
+# geoBoundaries ADM3 and ADM5 are separate layers: every parent_id is NULL.
+# Officers are scoped to Vythiri (ADM3); help cases sit on Muttil North (ADM5).
+# The tree walk never sees that, so scope also allows intersecting geoms —
+# same rule as assert_unit_in_scope.
+_IN_OFFICER_SCOPE = """
+              (
+                {scope}::bigint IS NULL
+                OR {unit} = {scope}
+                OR {unit} IN (
+                    WITH RECURSIVE descendants AS (
+                        SELECT id FROM admin_unit WHERE id = {scope}
+                        UNION ALL
+                        SELECT child.id FROM admin_unit child
+                        JOIN descendants d ON child.parent_id = d.id
+                    )
+                    SELECT id FROM descendants
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM admin_unit scope
+                    JOIN admin_unit target ON target.id = {unit}
+                    WHERE scope.id = {scope}
+                      AND ST_Intersects(scope.geom, target.geom)
+                )
+              )
+"""
 
 
 async def create_case(
@@ -25,12 +51,12 @@ async def create_case(
         INSERT INTO assistance_case (
             citizen_response_id, priority_score, priority_factors, model_version
         )
-        VALUES ($1, $2, $3::jsonb, $4)
+        VALUES ($1, $2, $3, $4)
         RETURNING id
         """,
         citizen_response_id,
         min(max(priority_score, 0.0), 1.0),
-        json.dumps(priority_factors),
+        priority_factors,
         model_version,
     )
     case_id = int(case_id)
@@ -89,18 +115,7 @@ async def list_cases(
             f"""
             {_CASE_SELECT}
             WHERE ac.status = $1
-              AND (
-                $3::bigint IS NULL
-                OR cr.unit_id IN (
-                    WITH RECURSIVE descendants AS (
-                        SELECT id FROM admin_unit WHERE id = $3
-                        UNION ALL
-                        SELECT child.id FROM admin_unit child
-                        JOIN descendants d ON child.parent_id = d.id
-                    )
-                    SELECT id FROM descendants
-                )
-              )
+              AND {_IN_OFFICER_SCOPE.format(unit="cr.unit_id", scope="$3")}
             ORDER BY ac.priority_score DESC, ac.created_at ASC
             LIMIT $2
             """,
@@ -112,18 +127,7 @@ async def list_cases(
         rows = await conn.fetch(
             f"""
             {_CASE_SELECT}
-            WHERE (
-                $2::bigint IS NULL
-                OR cr.unit_id IN (
-                    WITH RECURSIVE descendants AS (
-                        SELECT id FROM admin_unit WHERE id = $2
-                        UNION ALL
-                        SELECT child.id FROM admin_unit child
-                        JOIN descendants d ON child.parent_id = d.id
-                    )
-                    SELECT id FROM descendants
-                )
-              )
+            WHERE {_IN_OFFICER_SCOPE.format(unit="cr.unit_id", scope="$2")}
             ORDER BY ac.priority_score DESC, ac.created_at ASC
             LIMIT $1
             """,

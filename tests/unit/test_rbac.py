@@ -381,6 +381,80 @@ async def test_officer_scope_covers_contained_village(client, db_conn):
     assert denied.json()["detail"]["code"] == "unit_scope"
 
 
+async def test_officer_assistance_lists_contained_village(client, db_conn):
+    """Help needed must use geom intersection, not parent_id (always NULL)."""
+    import uuid
+
+    from services.response.citizen_response import submit_response
+
+    parent = await db_conn.fetchrow(
+        "SELECT id FROM admin_unit WHERE name = 'Vythiri' AND level = 3"
+    )
+    child = await db_conn.fetchrow(
+        "SELECT id FROM admin_unit WHERE name = 'Muttil North' AND level = 5"
+    )
+    if parent is None or child is None:
+        pytest.skip("demo geometry not loaded")
+
+    recipient_id = await db_conn.fetchval(
+        """
+        INSERT INTO recipient (unit_id, kind, preferred_lang, consented_at)
+        VALUES ($1, 'citizen', 'en', now())
+        RETURNING id
+        """,
+        child["id"],
+    )
+    incident_id = await db_conn.fetchval(
+        """
+        INSERT INTO incident (label, incident_type, status, origin_source)
+        VALUES ('SCOPE-HELP', 'test', 'active', 'manual')
+        RETURNING id
+        """
+    )
+    alert_id = await db_conn.fetchval(
+        """
+        INSERT INTO alert (
+            source_id, severity, headline, body, lang, area,
+            effective_at, expires_at, raw_checksum, incident_id, lifecycle_status
+        )
+        SELECT 'manual', 'extreme', 'Help scope', 'Body', 'en', geom,
+               now(), now() + interval '1 hour', $3, $1, 'active'
+        FROM admin_unit WHERE id = $2
+        RETURNING id
+        """,
+        incident_id,
+        child["id"],
+        f"scope-help-{uuid.uuid4()}",
+    )
+    channel_id = await db_conn.fetchval("SELECT id FROM channel WHERE code = 'sim'")
+    delivery_id = await db_conn.fetchval(
+        """
+        INSERT INTO delivery (alert_id, recipient_id, channel_id, state)
+        VALUES ($1, $2, $3, 'delivered')
+        RETURNING id
+        """,
+        alert_id,
+        recipient_id,
+        channel_id,
+    )
+    result = await submit_response(
+        db_conn,
+        delivery_id=int(delivery_id),
+        response_type="trapped",
+        idempotency_key=f"scope-help-{uuid.uuid4()}",
+    )
+    assert result["assistance_case_id"] is not None
+
+    token = await _token(db_conn, OFFICER, unit_scope_id=int(parent["id"]))
+    listed = await client.get(
+        "/api/v1/assistance?status=all",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert listed.status_code == 200, listed.text
+    ids = {row["unit_id"] for row in listed.json()}
+    assert int(child["id"]) in ids
+
+
 async def test_unit_risk_is_public_aggregate_except_relay(client, db_conn):
     public = await client.get("/api/v1/units/99999999/risk")
     assert public.status_code == 404

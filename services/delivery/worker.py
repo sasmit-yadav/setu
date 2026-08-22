@@ -22,8 +22,11 @@ from services.delivery.fatigue import apply_headline
 from services.delivery.keys import keys
 from services.delivery.ops_events import publish_ops
 from services.delivery.receipts import store_nonce
-from services.delivery.relay_escalation import on_channels_exhausted
-from services.delivery.retry import due_delivery_ids, handle_failure
+from services.delivery.relay_escalation import (
+    maybe_open_human_relay_if_unreached,
+    on_channels_exhausted,
+)
+from services.delivery.retry import due_delivery_ids, handle_failure, is_held_for_later
 from services.delivery.state_machine import transition
 from services.delivery.states import State
 from services.ml.translate import ensure_translations, resolve_alert_text
@@ -201,8 +204,18 @@ async def process_recipient(
     # the cache before the payload is built so FCM/PWA get Malayalam, not the
     # fallback notice.
     await ensure_translations(conn, alert_id)
+    attempted = False
     for row in rows:
+        if await is_held_for_later(redis, int(row["id"])):
+            continue
+        attempted = True
         await _send_one_delivery(conn, redis, adapters, alert_id, recipient_id, row)
+    # Simulated siren/SMS "delivered" used to stop B9. Extreme still spends a
+    # runner when no real digital channel reached this person.
+    if attempted:
+        await maybe_open_human_relay_if_unreached(
+            conn, redis, alert_id=alert_id, recipient_id=recipient_id
+        )
 
 
 async def _send_one_delivery(

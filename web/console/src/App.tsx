@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   BookOpen,
   Clock,
-  Command,
   Footprints,
   HeartPulse,
   LayoutDashboard,
@@ -50,7 +49,6 @@ function NavBtn({
   icon,
   label,
   hint,
-  shortcut,
   onClick,
 }: {
   active: boolean;
@@ -58,7 +56,6 @@ function NavBtn({
   icon: ReactNode;
   label: string;
   hint?: string;
-  shortcut?: string;
   onClick: () => void;
 }) {
   return (
@@ -76,7 +73,6 @@ function NavBtn({
         <span>{label}</span>
         {hint ? <span className="muted sidebar__hint">{hint}</span> : null}
       </span>
-      {shortcut ? <kbd className="mono sidebar__keys">{shortcut}</kbd> : null}
     </button>
   );
 }
@@ -171,7 +167,7 @@ export default function App() {
       all.push({ id: "method", label: t("cmd.measure"), shortcut: "G M", run: () => setView({ name: "method" }) });
       all.push({ id: "analytics", label: t("cmd.timing"), shortcut: "G A", run: () => setView({ name: "analytics" }) });
       if (relayRoles) {
-        all.push({ id: "relay", label: t("cmd.foot"), hint: t("cmd.footHint"), run: () => setView({ name: "relay" }) });
+        all.push({ id: "relay", label: t("cmd.foot"), hint: t("cmd.footHint"), shortcut: "G F", run: () => setView({ name: "relay" }) });
       }
       if (writeRoles) {
         all.push({ id: "enroll", label: t("cmd.register"), hint: t("cmd.registerHint"), run: () => setView({ name: "enroll" }) });
@@ -272,11 +268,7 @@ export default function App() {
 
         <div className="topbar__right">
           <LangSwitcher />
-          <span className="topbar__hint muted">
-            <Command size={12} aria-hidden /> <kbd className="mono">Ctrl K</kbd>
-            <span className="sr-only">{t("app.search")}</span>
-          </span>
-          <span className="topbar__user mono">{me.email}</span>
+          <span className="topbar__user">{me.email}</span>
           <span className={roleChip(me.role)}>{lookup(t, "role", me.role)}</span>
           <button type="button" className="btn btn--ghost" onClick={signOut}>
             <LogOut size={14} aria-hidden /> {t("app.signOut")}
@@ -297,7 +289,6 @@ export default function App() {
             icon={<Map size={16} />}
             label={t("nav.map")}
             hint={t("cmd.mapHint")}
-            shortcut="G L"
             onClick={() => setView({ name: "live" })}
           />
           {writeRoles && (
@@ -307,22 +298,9 @@ export default function App() {
               icon={<PenLine size={16} />}
               label={t("nav.write")}
               hint={t("cmd.writeHint")}
-              shortcut="G C"
               onClick={() => setView({ name: "compose" })}
             />
           )}
-          <NavBtn
-            collapsed={!navOpen}
-            active={view.name === "incident"}
-            icon={<Siren size={16} />}
-            label={t("nav.emergency")}
-            hint={t("cmd.emergencyHint")}
-            shortcut="G I"
-            onClick={() => {
-              if (lastIncidentId) openIncident(lastIncidentId);
-              else setView({ name: "board" });
-            }}
-          />
           {writeRoles && (
             <NavBtn
               collapsed={!navOpen}
@@ -330,39 +308,9 @@ export default function App() {
               icon={<HeartPulse size={16} />}
               label={t("nav.help")}
               hint={t("cmd.helpHint")}
-              shortcut="G Q"
               onClick={() => setView({ name: "queue" })}
             />
           )}
-          <NavBtn
-            collapsed={!navOpen}
-            active={view.name === "board"}
-            icon={<LayoutDashboard size={16} />}
-            label={t("nav.overview")}
-            hint={t("cmd.overviewHint")}
-            shortcut="G B"
-            onClick={() => setView({ name: "board" })}
-          />
-
-          <p className="sidebar__group">{t("nav.groupAlso")}</p>
-          <NavBtn
-            collapsed={!navOpen}
-            active={view.name === "method"}
-            icon={<BookOpen size={16} />}
-            label={t("nav.measure")}
-            hint={t("cmd.measure")}
-            shortcut="G M"
-            onClick={() => setView({ name: "method" })}
-          />
-          <NavBtn
-            collapsed={!navOpen}
-            active={view.name === "analytics"}
-            icon={<Clock size={16} />}
-            label={t("nav.timing")}
-            hint={t("cmd.timing")}
-            shortcut="G A"
-            onClick={() => setView({ name: "analytics" })}
-          />
           {relayRoles && (
             <NavBtn
               collapsed={!navOpen}
@@ -373,6 +321,27 @@ export default function App() {
               onClick={() => setView({ name: "relay" })}
             />
           )}
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "incident"}
+            icon={<Siren size={16} />}
+            label={t("nav.emergency")}
+            hint={t("cmd.emergencyHint")}
+            onClick={() => {
+              if (lastIncidentId) openIncident(lastIncidentId);
+              else setView({ name: "board" });
+            }}
+          />
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "board"}
+            icon={<LayoutDashboard size={16} />}
+            label={t("nav.overview")}
+            hint={t("cmd.overviewHint")}
+            onClick={() => setView({ name: "board" })}
+          />
+
+          <p className="sidebar__group">{t("nav.groupAlso")}</p>
           {writeRoles && (
             <NavBtn
               collapsed={!navOpen}
@@ -383,6 +352,20 @@ export default function App() {
               onClick={() => setView({ name: "enroll" })}
             />
           )}
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "method"}
+            icon={<BookOpen size={16} />}
+            label={t("nav.measure")}
+            onClick={() => setView({ name: "method" })}
+          />
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "analytics"}
+            icon={<Clock size={16} />}
+            label={t("nav.timing")}
+            onClick={() => setView({ name: "analytics" })}
+          />
         </nav>
 
         <main id="desk" className="shell__body" tabIndex={-1}>

@@ -49,3 +49,12 @@ dev-dist/
 # ngrok tunnel log. Not a credential, but it records the ephemeral public URL
 # and is pure local noise.
 ngrok.log
+
+# ── citizen sideload APK (Docker output, never commit binaries) ──
+*.apk
+*.aab
+mobile/citizen-apk/.gradle/
+mobile/citizen-apk/app/build/
+mobile/citizen-apk/build/
+mobile/citizen-apk/dist/
+mobile/citizen-apk/local.properties

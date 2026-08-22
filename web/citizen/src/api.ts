@@ -41,11 +41,40 @@ export type SafeZone = {
   disclosure: string;
 };
 
-export function citizenToken(): string | undefined {
-  if (typeof sessionStorage !== "undefined") {
-    const stored = sessionStorage.getItem(ACCESS_KEY);
-    if (stored) return stored;
+/** Citizen tokens live in localStorage so an installed PWA / sideload APK
+ * survives process death. sessionStorage is cleared when the WebView is
+ * destroyed — that is why the APK logged out on every close. The officer
+ * console stays on sessionStorage on purpose (shared desk). */
+function citizenStore(): Storage | undefined {
+  try {
+    if (typeof localStorage === "undefined") return undefined;
+    return localStorage;
+  } catch {
+    return undefined;
   }
+}
+
+function readCitizenKey(key: string): string | null {
+  const store = citizenStore();
+  if (store) {
+    const persistent = store.getItem(key);
+    if (persistent) return persistent;
+  }
+  try {
+    const ephemeral = sessionStorage.getItem(key);
+    if (ephemeral && store) {
+      store.setItem(key, ephemeral);
+      sessionStorage.removeItem(key);
+    }
+    return ephemeral;
+  } catch {
+    return null;
+  }
+}
+
+export function citizenToken(): string | undefined {
+  const stored = readCitizenKey(ACCESS_KEY);
+  if (stored) return stored;
   return import.meta.env.VITE_CITIZEN_ACCESS_TOKEN as string | undefined;
 }
 
@@ -54,13 +83,31 @@ export function hasCitizenSession(): boolean {
 }
 
 export function setCitizenSession(access: string, refresh: string) {
-  sessionStorage.setItem(ACCESS_KEY, access);
-  sessionStorage.setItem(REFRESH_KEY, refresh);
+  const store = citizenStore();
+  if (!store) return;
+  store.setItem(ACCESS_KEY, access);
+  store.setItem(REFRESH_KEY, refresh);
+  try {
+    sessionStorage.removeItem(ACCESS_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* private mode */
+  }
 }
 
 export function clearCitizenSession() {
-  sessionStorage.removeItem(ACCESS_KEY);
-  sessionStorage.removeItem(REFRESH_KEY);
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    sessionStorage.removeItem(ACCESS_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 function authHeaders(): Record<string, string> {
@@ -73,8 +120,7 @@ let refreshInFlight: Promise<boolean> | null = null;
 async function refreshCitizenSession(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    if (typeof sessionStorage === "undefined") return false;
-    const refresh = sessionStorage.getItem(REFRESH_KEY);
+    const refresh = readCitizenKey(REFRESH_KEY);
     if (!refresh) return false;
     const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
       method: "POST",

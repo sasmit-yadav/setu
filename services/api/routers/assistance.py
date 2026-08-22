@@ -41,6 +41,10 @@ def _case_out(row: dict, *, include_pii: bool) -> AssistanceCaseOut:
     factors = row["priority_factors"]
     if isinstance(factors, str):
         factors = json.loads(factors)
+    if isinstance(factors, str):
+        factors = json.loads(factors)
+    if not isinstance(factors, dict):
+        factors = {}
     lat = row.get("lat")
     lon = row.get("lon")
     return AssistanceCaseOut(
@@ -76,6 +80,7 @@ async def assistance_summary(
         WHERE ac.status = 'new'
           AND (
             $1::bigint IS NULL
+            OR cr.unit_id = $1
             OR cr.unit_id IN (
                 WITH RECURSIVE descendants AS (
                     SELECT id FROM admin_unit WHERE id = $1
@@ -84,6 +89,13 @@ async def assistance_summary(
                     JOIN descendants d ON child.parent_id = d.id
                 )
                 SELECT id FROM descendants
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM admin_unit scope
+                JOIN admin_unit target ON target.id = cr.unit_id
+                WHERE scope.id = $1
+                  AND ST_Intersects(scope.geom, target.geom)
             )
           )
         GROUP BY cr.unit_id, u.name

@@ -1,4 +1,4 @@
-# SETU — Engineering Specification & Build Roadmap (Merged Master Copy)
+read impl# SETU — Engineering Specification & Build Roadmap (Merged Master Copy)
 ### Disaster Alert Delivery, Acknowledgement, **Response** & Audit Platform
 **Version 3.0 (Merged) · 14 August 2026 · Target: SIH 2026 Internal Hackathon, 24–25 August**
 **Team: 6 · Budget: ₹0 · Remaining window: 14 → 23 August (10 days) · Feature freeze: 21 Aug 21:00 IST**
@@ -3025,7 +3025,7 @@ Base-spec Phase 3 starts today: D4's reach-risk case-study validation (Wayanad/P
 |---|---|---|
 | **F4 alert fatigue** — `is_fatigued()` + `build_message()` relabel; **never suppresses** | D2 | 3 related alerts to one recipient inside the configured window → the 3rd carries the config-driven `URGENT UPDATE — ` prefix; the 1st and 2nd do not. A test proves a 4th **extreme** alert is still delivered in full |
 | **D11f assignment** — `PATCH /assistance/{id}`; status `new → assigned → en_route → assisted → closed`; `assigned_by` recorded; every transition an audit event | D4 | An officer moves one real case through all five statuses in the console; the `CHECK` constraints reject an assignment with no team and a close with no `resolved_at` |
-| **🛑 DEVICE DECISION — iOS vs Android, final** | D5 + Presenter | **One decision, covering both weak spots** (offline PWA + Web Bluetooth, §11.4). Written into the team channel and into `docs/demo-device.md`. Not revisited after today |
+| **🛑 DEVICE DECISION — iOS vs Android, final** | D5 + Presenter | **One decision, covering both weak spots** (offline PWA + Web Bluetooth, §11.4). Written into the team channel and into `docs/IMPLEMENTATION.md` §10.5. Not revisited after today |
 | **D9f Command Board — data layer only** — `GET /incidents/{id}/board` returning one payload assembled from D7f/D8f/D11f/B8 | D3 | The endpoint returns real numbers for the test incident used on Days 6–7. **Zero hardcoded fields** — verified by `grep` for numeric literals in the router |
 | **Snapshot completeness** — `SNAPSHOT_TABLES` extended (§15); `test_snapshot_completeness.py` in CI | D6 | Load a snapshot into an empty DB → **every console screen renders non-zero where the source had data.** This test is the one that prevents a blank Command Board on stage |
 | **Re-run the offline test** with fatigue + assignment active | D5 | Same criteria as Day 6 |
@@ -3328,7 +3328,7 @@ Everything in v2.0's Part 19 and v2.1's Part 33 still applies. **The full merged
 - [ ] The base spec's **Gate 3 offline test passes with every new feature active**, re-confirmed on Day 11
 - [ ] The **21-step integration run** completed in one unbroken recorded take (Day 9)
 - [ ] The **two-person approval choreography** rehearsed 10× consecutively
-- [ ] The **device decision** (iOS vs Android) is written into `docs/demo-device.md` and was not revisited after Day 8
+- [ ] The **device decision** (iOS vs Android) is written into `docs/IMPLEMENTATION.md` §10.5 and was not revisited after Day 8
 
 **Part 38 — the two audits**
 - [ ] All five Part 38.1 hardcoding violations are fixed in code, and `check_no_hardcoding.py` runs **all three passes** (Python AST · SQL · TS) plus the TwiML no-literals test
