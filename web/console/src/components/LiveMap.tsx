@@ -58,7 +58,7 @@ function baseStyle(): Record<string, unknown> {
       {
         id: "background",
         type: "background",
-        paint: { "background-color": "#0b0d10" },
+        paint: { "background-color": "#1e2a3a" },
       },
     ],
   };
@@ -124,13 +124,34 @@ function addPlaceNames(map: maplibregl.Map) {
   });
 }
 
+async function attachRemoteBasemap(map: maplibregl.Map, styleUrl: string): Promise<boolean> {
+  if (!styleUrl || map.getSource("openmaptiles")) return false;
+  const res = await fetch(styleUrl);
+  if (!res.ok) return false;
+  const style = (await res.json()) as {
+    sources?: Record<string, maplibregl.SourceSpecification>;
+    layers?: Array<maplibregl.LayerSpecification & { type: string; id: string }>;
+  };
+  if (!style.sources) return false;
+  for (const [id, spec] of Object.entries(style.sources)) {
+    if (!map.getSource(id)) map.addSource(id, spec);
+  }
+  const before = map.getLayer("units-fill") ? "units-fill" : undefined;
+  for (const layer of style.layers ?? []) {
+    if (layer.type === "background" || layer.type === "symbol") continue;
+    if (map.getLayer(layer.id)) continue;
+    map.addLayer(layer, before);
+  }
+  return Boolean(map.getSource("openmaptiles") || map.getSource("ne2_shaded"));
+}
+
 async function attachBasemap(
   map: maplibregl.Map,
   cfg: PublicConfig | null,
   payload: MapPayload,
 ): Promise<void> {
   const source = String(cfg?.["map.tile_source"] ?? payload.tile_source);
-  if (source !== "pmtiles_local" || map.getSource("basemap")) return;
+  if (source !== "pmtiles_local" || map.getSource("basemap") || map.getSource("openmaptiles")) return;
   const probe = await fetch("/tiles/setu-basemap.pmtiles", {
     headers: { Range: "bytes=0-6" },
   });
@@ -152,7 +173,7 @@ async function attachBasemap(
       type: "fill",
       source: "basemap",
       "source-layer": "earth",
-      paint: { "fill-color": "#1c2430" },
+      paint: { "fill-color": "#2d3d52" },
     },
     before,
   );
@@ -162,7 +183,7 @@ async function attachBasemap(
       type: "fill",
       source: "basemap",
       "source-layer": "water",
-      paint: { "fill-color": "#0b0d10" },
+      paint: { "fill-color": "#15202b" },
     },
     before,
   );
@@ -172,7 +193,7 @@ async function attachBasemap(
       type: "line",
       source: "basemap",
       "source-layer": "roads",
-      paint: { "line-color": "#3d4654", "line-width": 0.8 },
+      paint: { "line-color": "#8b96a8", "line-width": 1.1 },
     },
     before,
   );
@@ -342,18 +363,28 @@ export function LiveMap({
           paint: {
             "fill-color": [
               "case",
-              ["==", ["get", "recipient_reach_pct"], null],
-              "#3a4452",
-              ["interpolate", ["linear"], ["get", "recipient_reach_pct"], 0, "#ff6b6b", 50, "#ffa94d", 100, "#51cf66"],
+              ["==", ["typeof", ["get", "recipient_reach_pct"]], "number"],
+              [
+                "interpolate",
+                ["linear"],
+                ["get", "recipient_reach_pct"],
+                0,
+                "#ff6b6b",
+                50,
+                "#ffa94d",
+                100,
+                "#51cf66",
+              ],
+              "#6b7c90",
             ],
-            "fill-opacity": 0.55,
+            "fill-opacity": 0.72,
           },
         });
         map.addLayer({
           id: "units-line",
           type: "line",
           source: "units",
-          paint: { "line-color": "#c5cdd8", "line-width": 1 },
+          paint: { "line-color": "#e8eef6", "line-width": 1.6 },
         });
         map.on("click", "units-fill", (event: maplibregl.MapLayerMouseEvent) => {
           const raw = event.features?.[0]?.properties?.unit_id;
@@ -363,15 +394,27 @@ export function LiveMap({
         applySources(map, first, !draw);
         fitFeatures(map, first);
         placeLabels(map, first, labelMarkers.current);
-        void attachBasemap(map, bootCfg, first)
-          .then(() => {
+        void (async () => {
+          const remote = String(
+            bootCfg?.["map.openfreemap_style_url"] ?? first.openfreemap_style_url ?? "",
+          );
+          let remoteOk = false;
+          if (remote && navigator.onLine) {
+            try {
+              remoteOk = await attachRemoteBasemap(map, remote);
+            } catch {
+              remoteOk = false;
+            }
+          }
+          if (!remoteOk) {
+            await attachBasemap(map, bootCfg, first);
             try {
               addPlaceNames(map);
             } catch {
               return;
             }
-          })
-          .catch(() => undefined);
+          }
+        })().catch(() => undefined);
       });
       if (draw) {
         map.on("click", (event: maplibregl.MapMouseEvent) => {

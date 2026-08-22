@@ -204,7 +204,9 @@ export function Composer({
       )}
       {error && <p className="danger" role="alert" aria-live="polite">{error}</p>}
       <div className="composer">
-        <LiveMap payload={map} cfg={cfg} draw onPolygon={onPolygon} />
+        <div className="live-map-wrap">
+          <LiveMap payload={map} cfg={cfg} draw onPolygon={onPolygon} />
+        </div>
         <form
           className="panel detail__box composer__form briefing"
           aria-label={t("compose.title")}

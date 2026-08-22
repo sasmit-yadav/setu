@@ -590,7 +590,7 @@ kbd {
   height: 520px;
   min-height: 520px;
   overflow: hidden;
-  background: var(--bg-base);
+  background: #1e2a3a;
 }
 .map-legend {
   display: flex;
