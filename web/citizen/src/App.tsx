@@ -20,7 +20,7 @@ import {
 } from "./api";
 import { setVerifyKey } from "./verify";
 import { listenPeer, sharePeer } from "./relay";
-import { enablePush, pushConfigured, pushSupported, refreshPushIfGranted } from "./push";
+import { enablePush, pushConfigured, pushFailMessage, pushSupported, refreshPushIfGranted } from "./push";
 import "./styles.css";
 
 type Screen = "alert" | "help" | "other" | "location";
@@ -143,6 +143,7 @@ export default function App() {
   const [peerProvenance, setPeerProvenance] = useState(false);
   const [shelter, setShelter] = useState<SafeZone | null>(null);
   const [pushState, setPushState] = useState<"idle" | "busy" | "enabled" | "error">("idle");
+  const [pushError, setPushError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -230,10 +231,13 @@ export default function App() {
     void refreshPushIfGranted(cfg)
       .then((result) => {
         if (cancelled || result == null) return;
-        setPushState(result.ok ? "enabled" : "error");
+        if (result.ok) {
+          setPushState("enabled");
+          setPushError(null);
+        }
       })
       .catch(() => {
-        if (!cancelled) setPushState("error");
+        /* Keep the button available; a tap can retry. */
       });
     return () => {
       cancelled = true;
@@ -410,6 +414,27 @@ export default function App() {
     } else {
       setLoginError("Could not reach the API.");
     }
+  }
+
+  function onEnableAlerts() {
+    setPushState("busy");
+    setPushError(null);
+    void enablePush(cfg)
+      .then((result) => {
+        if (result.ok) {
+          setPushState("enabled");
+          setPushError(null);
+          return;
+        }
+        setPushState("error");
+        setPushError(pushFailMessage(result.reason));
+      })
+      .catch((err) => {
+        setPushState("error");
+        setPushError(
+          pushFailMessage(err instanceof Error ? err.message : "push_failed"),
+        );
+      });
   }
 
   async function onSendCode(e: FormEvent) {
@@ -596,19 +621,16 @@ export default function App() {
             type="button"
             className="primary"
             disabled={pushState === "busy"}
-            onClick={() => {
-              setPushState("busy");
-              void enablePush(cfg)
-                .then((result) => setPushState(result.ok ? "enabled" : "error"))
-                .catch(() => setPushState("error"));
-            }}
+            onClick={() => onEnableAlerts()}
           >
             {pushState === "busy" ? "Enabling…" : "Enable alerts on this phone"}
           </button>
         ) : null}
         {pushState === "enabled" ? <p className="muted">Alerts enabled on this phone.</p> : null}
         {pushState === "error" ? (
-          <p className="muted">Couldn't enable alerts — try again shortly.</p>
+          <p className="muted" role="alert">
+            {pushError ?? "Couldn't enable alerts — try again shortly."}
+          </p>
         ) : null}
         {error ? <p className="error">{error}</p> : null}
         <button type="button" className="textlink" onClick={expireSession}>
@@ -679,19 +701,16 @@ export default function App() {
           type="button"
           className="textlink"
           disabled={pushState === "busy"}
-          onClick={() => {
-            setPushState("busy");
-            void enablePush(cfg)
-              .then((result) => setPushState(result.ok ? "enabled" : "error"))
-              .catch(() => setPushState("error"));
-          }}
+          onClick={() => onEnableAlerts()}
         >
           {pushState === "busy" ? "Enabling…" : "Enable alerts on this phone"}
         </button>
       ) : null}
       {pushState === "enabled" ? <p className="muted">Alerts enabled on this phone.</p> : null}
       {pushState === "error" ? (
-        <p className="muted">Couldn't enable alerts — try again, or keep using this link.</p>
+        <p className="muted" role="alert">
+          {pushError ?? "Couldn't enable alerts — try again, or keep using this link."}
+        </p>
       ) : null}
       {peerProvenance ? (
         <p className="muted">

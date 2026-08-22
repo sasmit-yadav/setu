@@ -15,6 +15,20 @@ export function pushConfigured(cfg: PublicConfig | null): boolean {
   );
 }
 
+export function isIosDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+export function isStandalonePwa(): boolean {
+  if (typeof window === "undefined") return false;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+}
+
 export function pushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -26,7 +40,35 @@ export function pushSupported(): boolean {
 
 export type EnablePushResult =
   | { ok: true; recipientId: number }
-  | { ok: false; reason: "not_supported" | "not_configured" | "permission_denied" | "no_token" | string };
+  | { ok: false; reason: string };
+
+export function pushFailMessage(reason: string): string {
+  switch (reason) {
+    case "permission_denied":
+      return "Notifications are blocked for this site. Tap the lock icon next to the address, allow notifications, then Enable alerts again.";
+    case "iphone_home_screen":
+      return "On iPhone, tap Share → Add to Home Screen, open SETU from that icon, then Enable alerts. A Safari tab cannot receive push.";
+    case "not_supported":
+      return "This browser cannot receive push. Use Chrome on Android, or Chrome/Edge on a computer.";
+    case "not_configured":
+      return "Push is not configured on the server.";
+    case "no_token":
+      return "The phone did not issue a push token. Try Chrome, or continue — SMS will still arrive.";
+    default:
+      return "Couldn't enable alerts. Use Chrome if you can; SMS will still arrive without this tap.";
+  }
+}
+
+async function registrationForPush(): Promise<ServiceWorkerRegistration> {
+  const existing = await navigator.serviceWorker.getRegistration("/");
+  if (existing) {
+    await navigator.serviceWorker.ready;
+    return existing;
+  }
+  const registered = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.ready;
+  return registered;
+}
 
 /** Requests notification permission, gets a real FCM token bound to our own
  * service worker (sw.ts — no separate firebase-messaging-sw.js: the existing
@@ -35,12 +77,18 @@ export type EnablePushResult =
 export async function enablePush(cfg: PublicConfig | null): Promise<EnablePushResult> {
   if (!pushSupported()) return { ok: false, reason: "not_supported" };
   if (!pushConfigured(cfg)) return { ok: false, reason: "not_configured" };
+  if (isIosDevice() && !isStandalonePwa()) {
+    return { ok: false, reason: "iphone_home_screen" };
+  }
 
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return { ok: false, reason: "permission_denied" };
 
   const { initializeApp, getApps } = await import("firebase/app");
-  const { getMessaging, getToken } = await import("firebase/messaging");
+  const { getMessaging, getToken, isSupported } = await import("firebase/messaging");
+  if (!(await isSupported())) {
+    return { ok: false, reason: isIosDevice() ? "iphone_home_screen" : "not_supported" };
+  }
 
   const firebaseConfig = {
     apiKey: cfg!["firebase.api_key"] as string,
@@ -50,12 +98,30 @@ export async function enablePush(cfg: PublicConfig | null): Promise<EnablePushRe
   };
   const app = getApps()[0] ?? initializeApp(firebaseConfig);
   const messaging = getMessaging(app);
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await registrationForPush();
 
-  const token = await getToken(messaging, {
-    vapidKey: cfg!["firebase.vapid_public_key"] as string,
-    serviceWorkerRegistration: registration,
-  });
+  let token: string | undefined;
+  try {
+    token = await getToken(messaging, {
+      vapidKey: cfg!["firebase.vapid_public_key"] as string,
+      serviceWorkerRegistration: registration,
+    });
+  } catch {
+    const previous = await registration.pushManager.getSubscription();
+    if (previous) await previous.unsubscribe();
+    try {
+      token = await getToken(messaging, {
+        vapidKey: cfg!["firebase.vapid_public_key"] as string,
+        serviceWorkerRegistration: registration,
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "push_failed";
+      if (/unsupported/i.test(raw) && isIosDevice()) {
+        return { ok: false, reason: "iphone_home_screen" };
+      }
+      return { ok: false, reason: raw };
+    }
+  }
   if (!token) return { ok: false, reason: "no_token" };
 
   const result = await registerDevice(token);
@@ -69,6 +135,7 @@ export async function refreshPushIfGranted(
   cfg: PublicConfig | null,
 ): Promise<EnablePushResult | null> {
   if (!pushSupported() || !pushConfigured(cfg)) return null;
+  if (isIosDevice() && !isStandalonePwa()) return null;
   if (typeof Notification === "undefined" || Notification.permission !== "granted") {
     return null;
   }
