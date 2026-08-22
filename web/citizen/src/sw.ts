@@ -149,7 +149,10 @@ self.addEventListener("push", (event) => {
       };
       const headline = data.headline ?? "SETU Alert";
       const body = data.body ?? "";
-      await self.registration.showNotification(headline, {
+      const options: NotificationOptions & {
+        renotify?: boolean;
+        vibrate?: number[];
+      } = {
         body,
         data,
         icon: "/icon-192.png",
@@ -158,7 +161,8 @@ self.addEventListener("push", (event) => {
         renotify: true,
         requireInteraction: true,
         vibrate: [200, 100, 200, 100, 400],
-      });
+      };
+      await self.registration.showNotification(headline, options);
       if (data.delivery_id && data.receipt_nonce) {
         try {
           await postReceipt(data.delivery_id, data.receipt_nonce, "device_delivered");
