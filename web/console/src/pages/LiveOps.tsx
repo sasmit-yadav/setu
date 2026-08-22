@@ -89,7 +89,8 @@ export function LiveOps({
   useEffect(() => {
     void load();
   }, [load]);
-  useOpsSocket(() => void load());
+  const link = useOpsSocket(() => void load());
+  const liveAlerts = alerts.filter((a) => a.lifecycle_status === "active");
 
   const virtualizer = useVirtualizer({
     count: alerts.length,
@@ -108,22 +109,34 @@ export function LiveOps({
           <h2>{t("live.title")}</h2>
         </div>
         {onCompose && (
-        <button className="btn btn--primary" onClick={onCompose}>
+        <button type="button" className="btn btn--primary" onClick={onCompose}>
           <PenLine size={14} aria-hidden /> {t("live.write")}
         </button>
         )}
-        <button className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
+        <button type="button" className="btn btn--ghost" onClick={() => void load()} aria-label={t("live.refresh")}>
           <RefreshCw size={14} aria-hidden /> {t("live.refresh")}
         </button>
+        <p className={`link-chip link-chip--${link}`} role="status" aria-label={t("live.link")}>
+          <span className="link-chip__dot" aria-hidden />
+          {link === "live" ? t("app.live") : link === "connecting" ? t("app.connecting") : t("app.offline")}
+        </p>
       </header>
+
+      <ol className="steps" aria-label={t("live.steps")}>
+        <li>{t("live.step1")}</li>
+        <li>{t("live.step2")}</li>
+        <li>{t("live.step3")}</li>
+      </ol>
 
       <div className="trouble" aria-label={t("live.trouble")}>
         <span className="trouble__label muted">{t("live.trouble")}</span>
-        {alerts
-          .filter((a) => a.lifecycle_status === "active")
-          .map((a) => (
+        {liveAlerts.length === 0 ? (
+          <p className="muted live-empty">{t("live.noLive")}</p>
+        ) : (
+          liveAlerts.map((a) => (
             <button
               key={a.id}
+              type="button"
               className={`trouble__tick trouble__tick--${a.severity}`}
               onClick={() => onOpen(a.id)}
               title={a.headline}
@@ -131,7 +144,8 @@ export function LiveOps({
               <SeverityBadge severity={a.severity} />
               <span className="sr-only">{a.headline}</span>
             </button>
-          ))}
+          ))
+        )}
       </div>
 
       <section className="inbox panel" aria-label={t("live.officialTitle")}>
@@ -151,6 +165,7 @@ export function LiveOps({
                   <span className={`status status--${row.lifecycle_status}`}>
                     {lookup(t, "life", row.lifecycle_status)}
                   </span>
+                  <span className="inbox__go">{t("live.officialOpen")}</span>
                 </button>
               </li>
             ))}
@@ -159,7 +174,7 @@ export function LiveOps({
       </section>
 
       {summary && (
-        <section className="kpis" aria-label={t("live.title")}>
+        <section className="kpis" aria-label={t("live.kpis")}>
           <Kpi label={t("live.kpiTargeted")} value={summary.targeted} />
           <Kpi
             label={t("live.kpiDelivered")}
@@ -192,14 +207,14 @@ export function LiveOps({
       <div className="live-split">
         <div className="live-map-wrap">
           <LiveMap payload={map} cfg={cfg} onUnit={onUnit} />
-          <p className="map-legend" aria-hidden>
+          <p className="map-legend" aria-label={t("live.legend")}>
             <span className="map-legend__swatch map-legend__swatch--low" /> {t("live.legendLow")}
             <span className="map-legend__swatch map-legend__swatch--mid" />
             <span className="map-legend__swatch map-legend__swatch--high" /> {t("live.legendHigh")}
           </p>
           <p className="lede">{t("live.mapHint")}</p>
         </div>
-        <section className="panel table live-table" aria-label={t("live.title")}>
+        <section className="panel table live-table" aria-label={t("live.table")} role="table">
           <div className="table__head" role="row">
             <span role="columnheader">{t("live.colId")}</span>
             <span role="columnheader">{t("live.colSeverity")}</span>
@@ -229,6 +244,7 @@ export function LiveOps({
                     }}
                     onClick={() => onOpen(a.id)}
                     role="row"
+                    type="button"
                   >
                     <span className="mono muted">{a.id}</span>
                     <SeverityBadge severity={a.severity} />

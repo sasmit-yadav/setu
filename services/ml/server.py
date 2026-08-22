@@ -7,9 +7,14 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from services.api.settings import settings
+from services.ml.flores import SOURCE_FLORES, flores_target, is_english
 
 app = FastAPI(title="SETU ML", docs_url=None, redoc_url=None)
 _CACHE: dict[str, Any] = {}
+
+# IndicTrans2 generate bound from the model card, not a policy threshold.
+_GENERATE_MAX_LENGTH = 256
+_GENERATE_NUM_BEAMS = 5
 
 
 class TranslateIn(BaseModel):
@@ -67,6 +72,22 @@ def _translator():
     return _CACHE["translator"]
 
 
+def _processor():
+    if "processor" in _CACHE:
+        return _CACHE["processor"]
+    if not _has_module("IndicTransToolkit"):
+        _CACHE["processor"] = None
+        return None
+    try:
+        from IndicTransToolkit.processor import IndicProcessor
+
+        _CACHE["processor"] = IndicProcessor(inference=True)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        _CACHE["processor"] = None
+        return None
+    return _CACHE["processor"]
+
+
 def _embedder():
     if "embedder" in _CACHE:
         return _CACHE["embedder"]
@@ -91,6 +112,7 @@ def health() -> dict[str, bool | str]:
     return {
         "ok": True,
         "torch": _has_module("torch"),
+        "toolkit": _has_module("IndicTransToolkit"),
         "translate": translator is not None,
         "embed": embedder is not None,
         "load_enabled": _load_enabled(),
@@ -111,13 +133,40 @@ def translate(
         raise HTTPException(status_code=503, detail="models_absent")
     if body.model and body.model != expected:
         raise HTTPException(status_code=409, detail="model_mismatch")
+    if is_english(body.target_lang):
+        return {"text": body.text, "target_lang": body.target_lang, "model": expected}
+    tgt = flores_target(body.target_lang)
+    if tgt is None:
+        raise HTTPException(status_code=400, detail="unsupported_target_lang")
     packed = _translator()
     if packed is None:
         raise HTTPException(status_code=503, detail="models_absent")
+    processor = _processor()
+    if processor is None:
+        # Raw tokenizer output without IndicTransToolkit is not Malayalam /
+        # Marathi — it is tagged subwords. Refusing is more honest than
+        # caching that string as a "translation".
+        raise HTTPException(status_code=503, detail="toolkit_absent")
     tokenizer, model = packed
-    encoded = tokenizer(body.text, return_tensors="pt")
-    generated = model.generate(**encoded)
-    text = tokenizer.decode(generated[0], skip_special_tokens=True)
+    batch = processor.preprocess_batch(
+        [body.text], src_lang=SOURCE_FLORES, tgt_lang=tgt
+    )
+    encoded = tokenizer(
+        batch,
+        truncation=True,
+        padding="longest",
+        return_tensors="pt",
+    )
+    generated = model.generate(
+        **encoded,
+        num_beams=_GENERATE_NUM_BEAMS,
+        max_length=_GENERATE_MAX_LENGTH,
+        num_return_sequences=1,
+    )
+    decoded = tokenizer.batch_decode(
+        generated, skip_special_tokens=True, clean_up_tokenization_spaces=True
+    )
+    text = processor.postprocess_batch(decoded, lang=tgt)[0]
     return {"text": text, "target_lang": body.target_lang, "model": expected}
 
 

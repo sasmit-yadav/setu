@@ -109,7 +109,7 @@ whatever original list they came from.
 
 - [x] **`python run.py demo`** — Part 19 gate exists (`guard_local_only` → migrate → seed board if needed → load/verify snapshot). Needs local geometry; honcho is optional
 - [ ] **Neon enrollment import** — `consented_recipients: 0` on Neon; `python run.py import-enrollment` now exits 1 if `data/enrollment/` has no CSV (will not invent recipients). Generate with `scripts/generate_enrollment_template.py` then fill real consented rows.
-- [x] **C3 translation cache** — API writes `alert_translation` via HF Space `/translate` when `HF_SPACE_URL` is set; demo reads cache only; PWA/IVR/relay fall back with a visible notice. IndicTrans2 weights stay off the API process (`SETU_LOAD_ML_MODELS=1` on `services.ml.server` only)
+- [x] **C3 translation cache** — API writes `alert_translation` via `/translate` when `HF_SPACE_URL` is set; PWA/IVR/relay fall back with a visible notice. Weights stay off the API (`SETU_LOAD_ML_MODELS=1` only on `services.ml.server`). Space still not deployed — laptop path is `python run.py ml-load` plus `worker-cloud` / `translate-cloud` (defaults `HF_SPACE_URL` to `:8001`). Server now uses IndicTransToolkit + FLORES tags; raw `generate()` was not Malayalam.
 - [x] **Dedup P/R on held-out set** — 200 labelled pairs in `data/ml/dedup_heldout.json`; shuffled 25% published to `model_registry` and Methodology
 - [x] **axe-core on four new screens** — `web/console` `npm run test:a11y` reads TSX sources then runs axe; AssuranceLadder still announces “not applicable”
 - [x] **Part 38 hardcoding three-pass** — Python AST + SQL VIEW comparisons + TS `relay`/`verify`/`response`/`sw`; `tests/unit/test_twiml_has_no_literals.py`
@@ -234,7 +234,7 @@ tests — not against this file's own previous claims.
 | Day 9 | Gate 4 integration run | 🟡 Coverage gate **re-run and passing at 95.87%** (up from 95.71% with B3's tests). `authoritative_source` provenance present in `alert_approval`. Retry-backoff evidence artifact committed. **21-step recorded take not done** — needs 6 people + hardware |
 | Day 10 | Command Board UI, after-action, RBAC, axe | ✅ `CommandBoard.tsx` grep clean. RBAC now **140 tests**, every Part 26 row with allow+deny. `npm run test:a11y` re-run → clean. Hardcoding guard confirmed to cover `governance/` + `response/` |
 | Day 11 | Freeze | 🟡 `freeze-guard.yml` guards all Day-11 paths, epoch 21 Aug 21:00 IST. Final snapshot committed ✅ (and re-cut after 69 fabricated translations were purged from it), `nightly-20260821` tag cut ✅, Part 19 walked ✅ (`docs/PART19-DOD.md`). Post-freeze block cannot be demonstrated until the epoch passes |
-| — | **Deploy** *(not a roadmap day)* | ✅ Vercel + Render + Neon + Upstash live at ₹0, verified end to end. Worker runs locally (`worker-cloud`) because Render free has no background workers. HF Space not deployed — demo-optional per Part 22 |
+| — | **Deploy** *(not a roadmap day)* | ✅ Vercel + Render + Neon + Upstash live at ₹0, verified end to end. Worker runs locally (`worker-cloud`) because Render free has no background workers. HF Space not deployed — use `ml-load` + `translate-cloud` on the laptop so IndicTrans2 still writes real cache rows |
 | Day 12–13 | Rehearsal | ⚪ Not started — every item needs humans or hardware |
 
 ---
@@ -251,7 +251,9 @@ python run.py data-bootstrap       # local full bootstrap
 python run.py neon-bootstrap       # Neon: migrate + config + geometry
 python run.py import-enrollment    # CSV dry-run then live (exits 1 if no CSV)
 python run.py api                  # :8000
-python run.py ml                   # isolated ML on :8001
+python run.py ml                   # isolated ML on :8001 (weights off)
+python run.py ml-load              # same, WITH IndicTrans2 weights (keep open)
+python run.py translate-cloud      # fill Neon alert_translation via local :8001
 python run.py worker             # local DB + local Redis
 python run.py worker-cloud       # local process, DEPLOYED Neon + Upstash (.env.cloud)
 python run.py ingest
@@ -269,8 +271,13 @@ python scripts/gen_pwa_icons.py                           # regenerate citizen P
 one piece you have to remember:
 
 ```powershell
-python run.py worker-cloud       # KEEP THIS TERMINAL OPEN — it does the sending
+python run.py ml-load            # KEEP OPEN — IndicTrans2 on :8001
+python run.py worker-cloud       # KEEP OPEN — sends FCM + fills translations
 ```
+
+On the citizen phone (or localhost Chrome): sign in, tap **Enable alerts**,
+then send. Push permission after the fact does not rewrite an already-queued
+delivery.
 
 Everything else — API, PWA, ops console, database, queue — is already running
 in the cloud. Render `CORS_ALLOWED_ORIGINS` must include both Vercel origins

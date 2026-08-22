@@ -221,9 +221,19 @@ curl -s https://<api>/health
 # The Firebase block reaches the browser (else "Enable alerts" never appears)
 curl -s https://<api>/api/v1/public/config | grep firebase
 
-# The Space is awake and loaded
-curl -s https://<space>/health
+# The Space is awake and loaded — or, until a Space exists, the laptop:
+#   python run.py ml-load
+curl -s http://127.0.0.1:8001/health
 ```
+
+Expect `"torch": true, "toolkit": true, "translate": true, "load_enabled": true`.
+`toolkit` false means IndicTransToolkit did not install — do not send; the
+server will 503 rather than cache broken output.
+
+`python run.py worker-cloud` and `python run.py translate-cloud` point at
+`:8001` when `.env.cloud` has no real `HF_SPACE_URL`. After Save draft, run
+`translate-cloud` before Validate if the warning is Kerala severe (Malayalam
+required). Moderate can wait — the worker translates before the FCM send.
 
 Then on the **presenting Android phone**, in Chrome:
 

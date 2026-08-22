@@ -18,7 +18,7 @@ import {
 } from "./api";
 import { setVerifyKey } from "./verify";
 import { listenPeer, sharePeer } from "./relay";
-import { enablePush, pushConfigured, pushSupported } from "./push";
+import { enablePush, pushConfigured, pushSupported, refreshPushIfGranted } from "./push";
 import "./styles.css";
 
 type Screen = "alert" | "help" | "other" | "location";
@@ -217,6 +217,22 @@ export default function App() {
       cancelled = true;
     };
   }, [signedIn, deliveryId, peerProvenance, expireSession]);
+
+  useEffect(() => {
+    if (!signedIn || !cfg) return;
+    let cancelled = false;
+    void refreshPushIfGranted(cfg)
+      .then((result) => {
+        if (cancelled || result == null) return;
+        setPushState(result.ok ? "enabled" : "error");
+      })
+      .catch(() => {
+        if (!cancelled) setPushState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn, cfg]);
 
   useEffect(() => {
     if (!signedIn || deliveryId === null) return;

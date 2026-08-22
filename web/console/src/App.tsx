@@ -1,5 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Command, HeartPulse, LogOut, Map, Radio, Siren } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  BookOpen,
+  Clock,
+  Command,
+  Footprints,
+  HeartPulse,
+  LayoutDashboard,
+  LogOut,
+  Map,
+  Menu,
+  PanelLeftClose,
+  PenLine,
+  Radio,
+  Siren,
+  UserPlus,
+} from "lucide-react";
 import { endpoints, getToken, setToken, type Me } from "./lib/api";
 import { lookup, useT } from "./lib/i18n";
 import { CommandPalette, type Command as Cmd } from "./components/CommandPalette";
@@ -16,6 +31,55 @@ import { Analytics } from "./pages/Analytics";
 import { RelayTasks } from "./pages/RelayTasks";
 import { Enrollment } from "./pages/Enrollment";
 import { ReachabilityCard } from "./components/ReachabilityCard";
+
+const SIDEBAR_KEY = "setu.console.sidebar";
+
+function readSidebarOpen(): boolean {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_KEY);
+    if (raw === "closed") return false;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+function NavBtn({
+  active,
+  collapsed,
+  icon,
+  label,
+  hint,
+  shortcut,
+  onClick,
+}: {
+  active: boolean;
+  collapsed: boolean;
+  icon: ReactNode;
+  label: string;
+  hint?: string;
+  shortcut?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`navlink sidebar__link ${active ? "is-active" : ""}`}
+      aria-current={active ? "page" : undefined}
+      title={collapsed ? (hint ? `${label} — ${hint}` : label) : undefined}
+      onClick={onClick}
+    >
+      <span className="sidebar__icon" aria-hidden>
+        {icon}
+      </span>
+      <span className="sidebar__text">
+        <span>{label}</span>
+        {hint ? <span className="muted sidebar__hint">{hint}</span> : null}
+      </span>
+      {shortcut ? <kbd className="mono sidebar__keys">{shortcut}</kbd> : null}
+    </button>
+  );
+}
 
 type View =
   | { name: "live" }
@@ -43,6 +107,19 @@ export default function App() {
   const [checked, setChecked] = useState(false);
   const [view, setView] = useState<View>({ name: "live" });
   const [lastIncidentId, setLastIncidentId] = useState<number | null>(null);
+  const [navOpen, setNavOpen] = useState(readSidebarOpen);
+
+  function toggleNav() {
+    setNavOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem(SIDEBAR_KEY, next ? "open" : "closed");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   const loadMe = useCallback(async () => {
     if (!getToken()) {
@@ -105,12 +182,87 @@ export default function App() {
     [t, me, lastIncidentId, openIncident, writeRoles, relayRoles],
   );
 
+  useEffect(() => {
+    const titles: Record<View["name"], string> = {
+      live: t("live.title"),
+      alert: t("live.title"),
+      compose: t("compose.title"),
+      queue: t("nav.help"),
+      incident: t("nav.emergency"),
+      board: t("nav.overview"),
+      method: t("nav.measure"),
+      analytics: t("nav.timing"),
+      relay: t("nav.foot"),
+      enroll: t("nav.register"),
+      unit: t("unit.kicker"),
+    };
+    document.title = `${titles[view.name]} — SETU`;
+  }, [t, view.name]);
+
+  useEffect(() => {
+    let pending = false;
+    let timer = 0;
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      const k = e.key.toLowerCase();
+      if (!pending && k === "g") {
+        e.preventDefault();
+        pending = true;
+        timer = window.setTimeout(() => {
+          pending = false;
+        }, 800);
+        return;
+      }
+      if (pending) {
+        pending = false;
+        window.clearTimeout(timer);
+        const cmd = commands.find((c) => c.shortcut?.toLowerCase() === `g ${k}`);
+        if (cmd) {
+          e.preventDefault();
+          cmd.run();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.clearTimeout(timer);
+    };
+  }, [commands]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || !navOpen) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.tagName === "INPUT" || el?.tagName === "TEXTAREA") return;
+      if (window.matchMedia("(max-width: 1100px)").matches) toggleNav();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
   if (!checked) return null;
   if (!me) return <Login onAuthed={() => void loadMe()} />;
 
   return (
-    <div className="shell">
+    <div className={`shell${navOpen ? "" : " shell--nav-collapsed"}`}>
+      <a className="skip-link" href="#desk">
+        {t("app.skip")}
+      </a>
       <header className="topbar">
+        <button
+          type="button"
+          className="btn btn--ghost topbar__menu"
+          aria-expanded={navOpen}
+          aria-controls="desk-nav"
+          onClick={toggleNav}
+        >
+          {navOpen ? <PanelLeftClose size={16} aria-hidden /> : <Menu size={16} aria-hidden />}
+          <span className="sr-only">{navOpen ? t("app.menuClose") : t("app.menu")}</span>
+        </button>
         <div className="topbar__brand">
           <span className="topbar__mark" aria-hidden />
           <Radio size={16} aria-hidden />
@@ -118,62 +270,122 @@ export default function App() {
           <span className="muted">{t("app.desk")}</span>
         </div>
 
-        <nav className="topbar__nav" aria-label="Primary">
-          <button
-            className={`navlink ${view.name === "live" || view.name === "alert" || view.name === "compose" ? "is-active" : ""}`}
-            onClick={() => setView({ name: "live" })}
-          >
-            {t("nav.map")}
-          </button>
-          <button
-            className={`navlink ${view.name === "incident" ? "is-active" : ""}`}
-            onClick={() => {
-              if (lastIncidentId) openIncident(lastIncidentId);
-              else setView({ name: "board" });
-            }}
-          >
-            <Siren size={12} aria-hidden /> {t("nav.emergency")}
-          </button>
-          {writeRoles && (
-          <button className={`navlink ${view.name === "queue" ? "is-active" : ""}`} onClick={() => setView({ name: "queue" })}>
-            <HeartPulse size={12} aria-hidden /> {t("nav.help")}
-          </button>
-          )}
-          <button className={`navlink ${view.name === "board" ? "is-active" : ""}`} onClick={() => setView({ name: "board" })}>
-            <Map size={12} aria-hidden /> {t("nav.overview")}
-          </button>
-          <button className={`navlink ${view.name === "method" ? "is-active" : ""}`} onClick={() => setView({ name: "method" })}>
-            {t("nav.measure")}
-          </button>
-          <button className={`navlink ${view.name === "analytics" ? "is-active" : ""}`} onClick={() => setView({ name: "analytics" })}>
-            {t("nav.timing")}
-          </button>
-          {relayRoles && (
-          <button className={`navlink ${view.name === "relay" ? "is-active" : ""}`} onClick={() => setView({ name: "relay" })}>
-            {t("nav.foot")}
-          </button>
-          )}
-          {writeRoles && (
-          <button className={`navlink ${view.name === "enroll" ? "is-active" : ""}`} onClick={() => setView({ name: "enroll" })}>
-            {t("nav.register")}
-          </button>
-          )}
-        </nav>
-
         <div className="topbar__right">
           <LangSwitcher />
           <span className="topbar__hint muted">
             <Command size={12} aria-hidden /> <kbd className="mono">Ctrl K</kbd>
+            <span className="sr-only">{t("app.search")}</span>
           </span>
           <span className="topbar__user mono">{me.email}</span>
           <span className={roleChip(me.role)}>{lookup(t, "role", me.role)}</span>
-          <button className="btn btn--ghost" onClick={signOut} aria-label={t("app.signOut")}>
-            <LogOut size={14} aria-hidden />
+          <button type="button" className="btn btn--ghost" onClick={signOut}>
+            <LogOut size={14} aria-hidden /> {t("app.signOut")}
           </button>
         </div>
       </header>
 
-      <main className="shell__body">
+      {navOpen ? (
+        <button type="button" className="sidebar-scrim" aria-label={t("app.menuClose")} onClick={toggleNav} />
+      ) : null}
+
+      <div className="shell__row">
+        <nav id="desk-nav" className="sidebar" aria-label="Primary">
+          <p className="sidebar__group">{t("nav.groupNow")}</p>
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "live" || view.name === "alert" || view.name === "unit"}
+            icon={<Map size={16} />}
+            label={t("nav.map")}
+            hint={t("cmd.mapHint")}
+            shortcut="G L"
+            onClick={() => setView({ name: "live" })}
+          />
+          {writeRoles && (
+            <NavBtn
+              collapsed={!navOpen}
+              active={view.name === "compose"}
+              icon={<PenLine size={16} />}
+              label={t("nav.write")}
+              hint={t("cmd.writeHint")}
+              shortcut="G C"
+              onClick={() => setView({ name: "compose" })}
+            />
+          )}
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "incident"}
+            icon={<Siren size={16} />}
+            label={t("nav.emergency")}
+            hint={t("cmd.emergencyHint")}
+            shortcut="G I"
+            onClick={() => {
+              if (lastIncidentId) openIncident(lastIncidentId);
+              else setView({ name: "board" });
+            }}
+          />
+          {writeRoles && (
+            <NavBtn
+              collapsed={!navOpen}
+              active={view.name === "queue"}
+              icon={<HeartPulse size={16} />}
+              label={t("nav.help")}
+              hint={t("cmd.helpHint")}
+              shortcut="G Q"
+              onClick={() => setView({ name: "queue" })}
+            />
+          )}
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "board"}
+            icon={<LayoutDashboard size={16} />}
+            label={t("nav.overview")}
+            hint={t("cmd.overviewHint")}
+            shortcut="G B"
+            onClick={() => setView({ name: "board" })}
+          />
+
+          <p className="sidebar__group">{t("nav.groupAlso")}</p>
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "method"}
+            icon={<BookOpen size={16} />}
+            label={t("nav.measure")}
+            hint={t("cmd.measure")}
+            shortcut="G M"
+            onClick={() => setView({ name: "method" })}
+          />
+          <NavBtn
+            collapsed={!navOpen}
+            active={view.name === "analytics"}
+            icon={<Clock size={16} />}
+            label={t("nav.timing")}
+            hint={t("cmd.timing")}
+            shortcut="G A"
+            onClick={() => setView({ name: "analytics" })}
+          />
+          {relayRoles && (
+            <NavBtn
+              collapsed={!navOpen}
+              active={view.name === "relay"}
+              icon={<Footprints size={16} />}
+              label={t("nav.foot")}
+              hint={t("cmd.footHint")}
+              onClick={() => setView({ name: "relay" })}
+            />
+          )}
+          {writeRoles && (
+            <NavBtn
+              collapsed={!navOpen}
+              active={view.name === "enroll"}
+              icon={<UserPlus size={16} />}
+              label={t("nav.register")}
+              hint={t("cmd.registerHint")}
+              onClick={() => setView({ name: "enroll" })}
+            />
+          )}
+        </nav>
+
+        <main id="desk" className="shell__body" tabIndex={-1}>
         {view.name === "live" && (
           <LiveOps
             onOpen={(id) => setView({ name: "alert", id })}
@@ -214,7 +426,8 @@ export default function App() {
         {view.name === "unit" && (
           <ReachabilityCard unitId={view.id} onBack={() => setView({ name: "live" })} />
         )}
-      </main>
+        </main>
+      </div>
 
       <CommandPalette commands={commands} emptyLabel={t("cmd.none")} searchLabel={t("app.search")} />
     </div>

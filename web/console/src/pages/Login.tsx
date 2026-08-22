@@ -71,7 +71,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
           </p>
         )}
 
-        <button className="btn btn--primary" disabled={busy}>
+        <button type="submit" className="btn btn--primary" disabled={busy} aria-busy={busy}>
           {busy ? t("login.busy") : t("login.submit")}
         </button>
 

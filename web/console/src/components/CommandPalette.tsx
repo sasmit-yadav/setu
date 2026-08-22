@@ -58,6 +58,28 @@ export function CommandPalette({
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    function trap(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const root = document.querySelector(".palette");
+      if (!(root instanceof HTMLElement)) return;
+      const nodes = [...root.querySelectorAll<HTMLElement>("input, button, [tabindex]:not([tabindex='-1'])")];
+      if (!nodes.length) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", trap);
+    return () => window.removeEventListener("keydown", trap);
+  }, [open]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return commands;
@@ -94,6 +116,8 @@ export function CommandPalette({
             value={query}
             placeholder={searchLabel}
             aria-label={searchLabel}
+            aria-controls="palette-list"
+            aria-activedescendant={filtered[active] ? `palette-${filtered[active].id}` : undefined}
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
@@ -114,13 +138,14 @@ export function CommandPalette({
             }}
           />
         </div>
-        <ul className="palette__list" role="listbox">
+        <ul className="palette__list" role="listbox" id="palette-list">
           {filtered.length === 0 && (
             <li className="palette__empty muted">{emptyLabel}</li>
           )}
           {filtered.map((c, i) => (
             <li
               key={c.id}
+              id={`palette-${c.id}`}
               role="option"
               aria-selected={i === active}
               className={`palette__item ${i === active ? "is-active" : ""}`}

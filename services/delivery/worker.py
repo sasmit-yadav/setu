@@ -26,7 +26,7 @@ from services.delivery.relay_escalation import on_channels_exhausted
 from services.delivery.retry import due_delivery_ids, handle_failure
 from services.delivery.state_machine import transition
 from services.delivery.states import State
-from services.ml.translate import resolve_alert_text
+from services.ml.translate import ensure_translations, resolve_alert_text
 
 logger = structlog.get_logger(__name__)
 
@@ -197,6 +197,12 @@ async def process_recipient(
     if row is None:
         return
     delivery_id = row["id"]
+    # Render's API cannot reach a laptop :8001, so compose-time
+    # ensure_translations no-ops in the cloud. The worker *does* run here, and
+    # worker-cloud points HF_SPACE_URL at local ML when no Space is set. Fill
+    # the cache before the payload is built so FCM/PWA get Malayalam, not the
+    # fallback notice.
+    await ensure_translations(conn, alert_id)
     async with transaction(conn):
         if row["state"] == "pending":
             await transition(conn, delivery_id, State.queued)

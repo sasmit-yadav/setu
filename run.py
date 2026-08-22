@@ -31,7 +31,12 @@ VENV_PY = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin") / (
     "python.exe" if os.name == "nt" else "python"
 )
 PY = str(VENV_PY) if VENV_PY.exists() else sys.executable
+ML_VENV_PY = ROOT / ".venv-ml" / ("Scripts" if os.name == "nt" else "bin") / (
+    "python.exe" if os.name == "nt" else "python"
+)
 COMPOSE = ["docker", "compose", "-f", str(ROOT / "infra" / "docker-compose.yml")]
+LOCAL_ML_URL = "http://127.0.0.1:8001"
+DEFAULT_TRANSLATE_HF_ID = "ai4bharat/indictrans2-en-indic-dist-200M"
 
 TASKS: dict[str, str] = {}
 
@@ -55,6 +60,30 @@ def must(cmd: list[str], *, cwd: pathlib.Path | None = None, **kw) -> None:
     if sh(cmd, cwd=cwd, **kw) != 0:
         print(f"\nFAILED: {' '.join(cmd)}", file=sys.stderr)
         sys.exit(1)
+
+
+def _parse_env_file(path: pathlib.Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        out[key.strip()] = value.strip()
+    return out
+
+
+def _ml_url_for_laptop(raw: str) -> str:
+    """Laptop worker / translate-cloud: use local :8001 unless a real Space URL is set."""
+    value = (raw or "").strip()
+    lowered = value.lower()
+    if not value:
+        return LOCAL_ML_URL
+    if "your-space" in lowered or "placeholder" in lowered or "example.com" in lowered:
+        return LOCAL_ML_URL
+    return value
 
 
 def load_env() -> None:
@@ -220,14 +249,16 @@ def worker_cloud() -> None:
         )
         sys.exit(1)
     env = os.environ.copy()
-    for line in cloud.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        env[key.strip()] = value.strip()
+    env.update(_parse_env_file(cloud))
+    env["HF_SPACE_URL"] = _ml_url_for_laptop(env.get("HF_SPACE_URL", ""))
     target = env.get("DATABASE_URL_DIRECT", "").split("@")[-1].split("/")[0]
+    fcm_path = env.get("FCM_SERVICE_ACCOUNT_JSON", "./secrets/fcm-service-account.json")
+    fcm_ok = pathlib.Path(fcm_path).is_file() or (
+        fcm_path.strip().startswith("{") and "private_key" in fcm_path
+    )
     print(f"worker -> db {target} | redis {env.get('REDIS_URL','').split('@')[-1]}")
+    print(f"  fcm credentials: {'present' if fcm_ok else 'MISSING — push will fall to SIM'}")
+    print(f"  translate: {env['HF_SPACE_URL']}  (start `python run.py ml-load` in another terminal)")
     must([PY, "-m", "services.delivery.worker"], env=env)
 
 
@@ -292,6 +323,62 @@ def neon_seed_config() -> None:
 def ml() -> None:
     load_env()
     must([PY, "-m", "uvicorn", "services.ml.server:app", "--reload", "--port", "8001"])
+
+
+@task("Start isolated ML on :8001 WITH IndicTrans2 weights (SETU_LOAD_ML_MODELS=1)")
+def ml_load() -> None:
+    """Same process as `ml`, but actually loads the 200M card.
+
+    Needed for a real Malayalam / Marathi cache. First start downloads the
+    gated weights — accept the model terms on Hugging Face and set HF_TOKEN
+    if the hub returns 401. Leave this terminal open next to worker-cloud.
+    No --reload: restarting mid-load would re-download.
+
+    Prefers `.venv-ml` so torch never lands in the API venv. Create it with:
+      python -m venv .venv-ml
+      .venv-ml\\Scripts\\python -m pip install -r services/ml/requirements-ml.txt
+    """
+    load_env()
+    ml_py = str(ML_VENV_PY) if ML_VENV_PY.exists() else PY
+    if not ML_VENV_PY.exists():
+        print(
+            "  .venv-ml missing — using the API venv. Prefer a separate env:\n"
+            "    python -m venv .venv-ml\n"
+            "    .venv-ml\\Scripts\\python -m pip install -r services/ml/requirements-ml.txt"
+        )
+    env = os.environ.copy()
+    cloud = ROOT / ".env.cloud"
+    if cloud.exists():
+        cloud_env = _parse_env_file(cloud)
+        # Same key the worker will send. A mismatch is a silent 401 on /translate.
+        if cloud_env.get("INTERNAL_ML_KEY"):
+            env["INTERNAL_ML_KEY"] = cloud_env["INTERNAL_ML_KEY"]
+    env["SETU_LOAD_ML_MODELS"] = "1"
+    env.setdefault("SETU_TRANSLATE_HF_ID", DEFAULT_TRANSLATE_HF_ID)
+    if not env.get("HF_TOKEN") and not env.get("HUGGING_FACE_HUB_TOKEN"):
+        print(
+            "  no HF_TOKEN in the environment — if the hub 401s, accept the "
+            "IndicTrans2 terms and set HF_TOKEN (never commit it)"
+        )
+    must(
+        [ml_py, "-m", "uvicorn", "services.ml.server:app", "--port", "8001"],
+        env=env,
+    )
+
+
+@task("Fill missing alert_translation rows on Neon via local ML (.env.cloud)")
+def translate_cloud() -> None:
+    """Render cannot reach laptop :8001. After Save draft, run this so
+    Validate sees Malayalam before Send (Kerala severe requires it)."""
+    cloud = ROOT / ".env.cloud"
+    if not cloud.exists():
+        print("Missing .env.cloud — refusing to fall back to .env.", file=sys.stderr)
+        sys.exit(1)
+    env = os.environ.copy()
+    env.update(_parse_env_file(cloud))
+    env["HF_SPACE_URL"] = _ml_url_for_laptop(env.get("HF_SPACE_URL", ""))
+    print(f"  translate-cloud -> {env['HF_SPACE_URL']}")
+    must([PY, "scripts/translate_pending.py"], env=env)
 
 
 @task("Verify admin units, config, channels, recipients")

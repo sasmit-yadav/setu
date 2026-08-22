@@ -4,13 +4,14 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from services.api import config_repo
 from services.api.auth import Principal
 from services.api.deps import get_conn
 from services.api.rbac import assert_delivery_in_scope, require_citizen_write
 from services.api.schemas import DeviceRegisterRequest, DeviceRegisterResponse
 from services.crypto.alert_signing import sign_payload
 from services.delivery.fatigue import apply_headline
-from services.ml.translate import resolve_alert_text
+from services.ml.translate import lang_for_unit, resolve_alert_text
 
 router = APIRouter(prefix="/api/v1/citizen", tags=["citizen"])
 
@@ -33,8 +34,15 @@ class CitizenDeliveryOut(BaseModel):
     fallback_notice: str | None = None
 
 
-async def _to_out(conn: asyncpg.Connection, row: asyncpg.Record) -> CitizenDeliveryOut:
-    resolved = await resolve_alert_text(conn, row["alert_id"], row["preferred_lang"])
+async def _to_out(
+    conn: asyncpg.Connection,
+    row: asyncpg.Record,
+    *,
+    lang: str | None = None,
+) -> CitizenDeliveryOut:
+    resolved = await resolve_alert_text(
+        conn, row["alert_id"], lang or row["preferred_lang"]
+    )
     headline, _ = await apply_headline(conn, row["alert_id"], resolved.headline)
     effective_at = row["effective_at"].isoformat() if row["effective_at"] else None
     signature = None
@@ -85,14 +93,18 @@ async def list_citizen_deliveries(
 ) -> list[CitizenDeliveryOut]:
     if principal.unit_scope_id is None:
         return []
+    village_lang = await lang_for_unit(conn, principal.unit_scope_id)
+    cap = await config_repo.get_int(conn, "api.list_default_limit")
     rows = await conn.fetch(
         _DELIVERY_SELECT
         + """
         WHERE r.unit_id = $1 AND a.lifecycle_status = 'active'
-        ORDER BY a.effective_at DESC NULLS LAST, d.id DESC
-        LIMIT 20
+        ORDER BY (r.kind = 'citizen_pwa') DESC,
+                 a.effective_at DESC NULLS LAST, d.id DESC
+        LIMIT $2
         """,
         principal.unit_scope_id,
+        cap,
     )
     seen: set[int] = set()
     out: list[CitizenDeliveryOut] = []
@@ -100,10 +112,8 @@ async def list_citizen_deliveries(
         if row["alert_id"] in seen:
             continue
         seen.add(row["alert_id"])
-        out.append(await _to_out(conn, row))
-        if len(out) >= 5:
-            break
-    return out
+        out.append(await _to_out(conn, row, lang=village_lang))
+    return out[:cap]
 
 
 @router.get("/deliveries/{delivery_id}", response_model=CitizenDeliveryOut)
@@ -116,7 +126,12 @@ async def citizen_delivery(
     row = await conn.fetchrow(_DELIVERY_SELECT + " WHERE d.id = $1", delivery_id)
     if row is None:
         raise HTTPException(status_code=404, detail="delivery_not_found")
-    return await _to_out(conn, row)
+    village_lang = (
+        await lang_for_unit(conn, principal.unit_scope_id)
+        if principal.unit_scope_id is not None
+        else None
+    )
+    return await _to_out(conn, row, lang=village_lang)
 
 
 @router.post("/device", response_model=DeviceRegisterResponse)
@@ -136,16 +151,22 @@ async def register_device(
     """
     if principal.unit_scope_id is None:
         raise HTTPException(status_code=400, detail="no_unit_scope_for_citizen")
+    preferred = await lang_for_unit(conn, principal.unit_scope_id)
     row = await conn.fetchrow(
         """
-        INSERT INTO recipient (unit_id, kind, push_token, consented_at, consent_source)
-        VALUES ($1, 'citizen_pwa', $2, now(), 'pwa_push_opt_in')
+        INSERT INTO recipient (
+            unit_id, kind, push_token, preferred_lang, consented_at, consent_source
+        )
+        VALUES ($1, 'citizen_pwa', $2, $3, now(), 'pwa_push_opt_in')
         ON CONFLICT (unit_id) WHERE kind = 'citizen_pwa' DO UPDATE
-            SET push_token = EXCLUDED.push_token, consented_at = now()
+            SET push_token = EXCLUDED.push_token,
+                consented_at = now(),
+                preferred_lang = COALESCE(EXCLUDED.preferred_lang, recipient.preferred_lang)
         RETURNING id, unit_id
         """,
         principal.unit_scope_id,
         body.push_token,
+        preferred,
     )
     return DeviceRegisterResponse(recipient_id=row["id"], unit_id=row["unit_id"])
 

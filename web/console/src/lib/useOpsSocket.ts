@@ -1,21 +1,54 @@
-import { useEffect, useRef } from "react";
-import { getToken, opsSocketUrl } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { getToken, opsSocketUrl } from "./api";
 
-export function useOpsSocket(onEvent: (payload?: Record<string, unknown>) => void) {
+export type LinkState = "connecting" | "live" | "down";
+
+export function useOpsSocket(onEvent: (payload?: Record<string, unknown>) => void): LinkState {
   const cb = useRef(onEvent);
   cb.current = onEvent;
+  const [state, setState] = useState<LinkState>("connecting");
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    const socket = new WebSocket(opsSocketUrl(token));
-    socket.onmessage = (event) => {
-      try {
-        cb.current(JSON.parse(String(event.data)) as Record<string, unknown>);
-      } catch {
-        cb.current();
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let retry = 0;
+
+    function connect() {
+      if (stopped) return;
+      const token = getToken();
+      if (!token) {
+        setState("down");
+        return;
       }
+      setState("connecting");
+      socket = new WebSocket(opsSocketUrl(token));
+      socket.onopen = () => {
+        if (!stopped) setState("live");
+      };
+      socket.onmessage = (event) => {
+        try {
+          cb.current(JSON.parse(String(event.data)) as Record<string, unknown>);
+        } catch {
+          cb.current();
+        }
+      };
+      socket.onerror = () => {
+        /* onclose follows */
+      };
+      socket.onclose = () => {
+        if (stopped) return;
+        setState("down");
+        retry = window.setTimeout(connect, 4000);
+      };
+    }
+
+    connect();
+    return () => {
+      stopped = true;
+      window.clearTimeout(retry);
+      socket?.close();
     };
-    return () => socket.close();
   }, []);
+
+  return state;
 }

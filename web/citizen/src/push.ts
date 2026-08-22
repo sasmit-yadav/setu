@@ -61,3 +61,16 @@ export async function enablePush(cfg: PublicConfig | null): Promise<EnablePushRe
   const result = await registerDevice(token);
   return { ok: true, recipientId: result.recipient_id };
 }
+
+/** Re-bind the FCM token if the browser already granted permission.
+ * First visit still needs the Enable-alerts tap; after that, login is enough
+ * to refresh the token so a later Send can actually reach this phone. */
+export async function refreshPushIfGranted(
+  cfg: PublicConfig | null,
+): Promise<EnablePushResult | null> {
+  if (!pushSupported() || !pushConfigured(cfg)) return null;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") {
+    return null;
+  }
+  return enablePush(cfg);
+}

@@ -1546,6 +1546,42 @@ PWA, **no trailing slash**.
 
 ---
 
+### 6.17 Push and IndicTrans2 have to fire on the laptop, not the Space
+
+The hosted API still cannot load torch (Part 22) and still cannot reach a
+process on this machine. A Hugging Face Space is the long-term host; until
+one exists, the **laptop worker** is the honest path for both features.
+
+**IndicTrans2.** `services/ml/server.py` used to tokenize English and
+`generate()` with no language tags. IndicTrans2's own card says that
+output is wrong without `IndicTransToolkit` plus FLORES-200 codes
+(`ml` → `mal_Mlym`, `mr` → `mar_Deva`). The server now preprocesses,
+generates, and postprocesses; missing toolkit is a 503, not a cached
+garbage string. Mapping lives in `services/ml/flores.py` so the Space
+image can copy it without pulling `asyncpg`.
+
+`python run.py ml-load` starts `:8001` with `SETU_LOAD_ML_MODELS=1`.
+`python run.py worker-cloud` and `python run.py translate-cloud` point
+`HF_SPACE_URL` at `http://127.0.0.1:8001` when the cloud env has no real
+Space URL. The worker calls `ensure_translations` **before** it builds
+the FCM payload, so Malayalam is in `alert_translation` (and on the
+wire) even though Render's compose-time call no-ops. For Kerala
+**severe**, run `translate-cloud` after Save draft and before Validate
+— the quality gate still reads Neon, not the laptop.
+
+**Push.** `POST /citizen/device` now writes `preferred_lang` from
+`lang_for_unit` (Muttil North → `ml`). The inbox prefers a
+`citizen_pwa` delivery and resolves text in the village language, not
+whichever CSV recipient happened to sort first. After the resident has
+granted notification permission once, login re-registers the FCM token
+so the next Send can actually reach the phone. `fcm_send` rows are
+still only written by Firebase, never inserted by hand.
+
+Demo order: Enable alerts on the phone (or localhost Chrome) **before**
+Send; keep `ml-load` and `worker-cloud` open.
+
+---
+
 ## 7. Frontend
 
 Two apps that deliberately invert on almost every axis. Part 0.4 is explicit

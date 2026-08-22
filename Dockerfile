@@ -44,9 +44,11 @@ RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir -r /app/requirements-ml.txt
 
 # Exactly what server.py's import graph needs, and nothing else. Verified from
-# the AST rather than assumed: server.py imports only importlib, typing,
-# fastapi, pydantic and services.api.settings, and all three __init__.py files
-# are empty, so no sibling module is pulled in transitively.
+# the AST rather than assumed: server.py imports importlib, typing, fastapi,
+# pydantic, services.api.settings and services.ml.flores. All three
+# __init__.py files are empty, so no sibling module is pulled in
+# transitively. flores.py has no torch / asyncpg / httpx import — it is safe
+# in this image.
 #
 # Notably this does NOT copy the rest of services/ml/. translate.py, dedup.py,
 # reach_risk.py and client.py all import asyncpg or httpx, which this image
@@ -59,6 +61,7 @@ COPY --chown=setu:setu services/__init__.py       /app/services/__init__.py
 COPY --chown=setu:setu services/api/__init__.py   /app/services/api/__init__.py
 COPY --chown=setu:setu services/api/settings.py   /app/services/api/settings.py
 COPY --chown=setu:setu services/ml/__init__.py    /app/services/ml/__init__.py
+COPY --chown=setu:setu services/ml/flores.py      /app/services/ml/flores.py
 COPY --chown=setu:setu services/ml/server.py      /app/services/ml/server.py
 
 USER setu

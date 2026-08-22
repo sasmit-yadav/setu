@@ -860,3 +860,40 @@ async def test_citizen_device_registration_roles(client, db_conn, role, allowed)
 async def test_unauthenticated_cannot_register_a_device(client):
     r = await client.post("/api/v1/citizen/device", json={"push_token": "no-auth"})
     assert r.status_code in (401, 403), r.status_code
+
+
+async def test_device_register_stores_village_lang(client, db_conn, monkeypatch):
+    unit_id = await db_conn.fetchval("SELECT id FROM admin_unit LIMIT 1")
+    if unit_id is None:
+        pytest.skip("admin_unit empty")
+
+    async def fake_lang(_conn, scoped_unit: int) -> str | None:
+        assert scoped_unit == unit_id
+        return "ml"
+
+    monkeypatch.setattr("services.api.routers.citizen.lang_for_unit", fake_lang)
+    token = await _token(db_conn, CITIZEN, unit_scope_id=int(unit_id))
+    try:
+        r = await client.post(
+            "/api/v1/citizen/device",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"push_token": "village-lang-token"},
+        )
+        assert r.status_code == 200, r.text
+        preferred = await db_conn.fetchval(
+            """
+            SELECT preferred_lang FROM recipient
+            WHERE unit_id = $1 AND kind = 'citizen_pwa'
+            """,
+            unit_id,
+        )
+        assert preferred == "ml"
+    finally:
+        await db_conn.execute(
+            """
+            DELETE FROM recipient
+            WHERE unit_id = $1 AND kind = 'citizen_pwa'
+              AND push_token = 'village-lang-token'
+            """,
+            unit_id,
+        )
