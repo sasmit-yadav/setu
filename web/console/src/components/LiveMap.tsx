@@ -152,14 +152,9 @@ function addUnitLayers(
             100,
             "#51cf66",
           ],
-          "#4dabf7",
+          "#3d8fd1",
         ],
-        "fill-opacity": [
-          "case",
-          ["==", ["typeof", ["get", "recipient_reach_pct"]], "number"],
-          0.38,
-          0.18,
-        ],
+        "fill-opacity": 0.62,
       },
     });
   }
@@ -377,13 +372,9 @@ export function LiveMap({
     const first = payload;
     const bootCfg = cfg;
 
-    const remote = String(
-      bootCfg?.["map.openfreemap_style_url"] ?? first.openfreemap_style_url ?? "",
-    );
-    const useRemote = Boolean(remote && navigator.onLine);
     const map = new maplibregl.Map({
       container,
-      style: useRemote ? remote : (baseStyle() as never),
+      style: baseStyle() as never,
       center: first.center,
       zoom: first.zoom,
       attributionControl: { compact: true },
@@ -398,17 +389,15 @@ export function LiveMap({
         applySources(map, first, !draw);
         fitFeatures(map, first);
         placeLabels(map, first, labelMarkers.current);
-        if (!useRemote) {
-          void attachBasemap(map, bootCfg, first)
-            .then(() => {
-              try {
-                addPlaceNames(map);
-              } catch {
-                return;
-              }
-            })
-            .catch(() => undefined);
-        }
+        void attachBasemap(map, bootCfg, first)
+          .then(() => {
+            try {
+              addPlaceNames(map);
+            } catch {
+              return;
+            }
+          })
+          .catch(() => undefined);
       });
       if (draw) {
         map.on("click", (event: maplibregl.MapMouseEvent) => {
