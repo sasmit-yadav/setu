@@ -82,6 +82,22 @@ async function loadSameOriginOfmStyle(): Promise<Record<string, unknown>> {
   return style as Record<string, unknown>;
 }
 
+async function enhanceWithOfm(map: maplibregl.Map): Promise<void> {
+  const style = (await loadSameOriginOfmStyle()) as {
+    sources?: Record<string, maplibregl.SourceSpecification>;
+    layers?: Array<maplibregl.LayerSpecification & { id: string; type: string }>;
+  };
+  for (const [id, spec] of Object.entries(style.sources ?? {})) {
+    if (!map.getSource(id)) map.addSource(id, spec);
+  }
+  const before = map.getLayer("units-fill") ? "units-fill" : undefined;
+  for (const layer of style.layers ?? []) {
+    if (layer.type === "background" || layer.type === "symbol") continue;
+    if (map.getLayer(layer.id)) continue;
+    map.addLayer(layer, before);
+  }
+}
+
 function baseStyle(): Record<string, unknown> {
   return {
     version: 8,
@@ -402,88 +418,81 @@ export function LiveMap({
     if (!ref.current || !payload || mapRef.current) return;
     registerPmtiles();
     let observer: ResizeObserver | null = null;
-    let cancelled = false;
     const container = ref.current;
     const first = payload;
     const bootCfg = cfg;
 
-    void (async () => {
-      let style: Record<string, unknown> = baseStyle();
-      let streets = false;
-      try {
-        style = await loadSameOriginOfmStyle();
-        streets = true;
-      } catch {
-        streets = false;
-      }
-      if (cancelled || !container.isConnected || mapRef.current) return;
-      const map = new maplibregl.Map({
-        container,
-        style: style as never,
-        center: first.center,
-        zoom: first.zoom,
-        attributionControl: { compact: true },
-      });
-      mapRef.current = map;
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-      observer = new ResizeObserver(() => map.resize());
-      observer.observe(container);
-      map.on("load", () => {
-        map.resize();
-        addUnitLayers(
-          map,
-          first.units,
-          draw ? undefined : (id) => onUnitRef.current?.(id),
-          streets ? 0.2 : 0.62,
-        );
-        applySources(map, first, !draw);
-        fitFeatures(map, first);
-        placeLabels(map, first, labelMarkers.current);
-        if (!streets) {
-          void attachBasemap(map, bootCfg, first)
-            .then(() => {
-              try {
-                addPlaceNames(map);
-              } catch {
-                return;
-              }
-            })
-            .catch(() => undefined);
+    const map = new maplibregl.Map({
+      container,
+      style: baseStyle() as never,
+      center: first.center,
+      zoom: first.zoom,
+      attributionControl: { compact: true },
+    });
+    mapRef.current = map;
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    observer = new ResizeObserver(() => map.resize());
+    observer.observe(container);
+
+    function paintDesk() {
+      if (map.getSource("units")) return;
+      map.resize();
+      addUnitLayers(
+        map,
+        first.units,
+        draw ? undefined : (id) => onUnitRef.current?.(id),
+        0.55,
+      );
+      applySources(map, first, !draw);
+      fitFeatures(map, first);
+      placeLabels(map, first, labelMarkers.current);
+      void attachBasemap(map, bootCfg, first)
+        .then(() => {
+          try {
+            addPlaceNames(map);
+          } catch {
+            return;
+          }
+        })
+        .catch(() => undefined);
+      void enhanceWithOfm(map).catch(() => undefined);
+    }
+
+    map.on("load", paintDesk);
+    const paintTimer = window.setTimeout(paintDesk, 800);
+
+    if (draw) {
+      map.on("click", (event: maplibregl.MapMouseEvent) => {
+        points.current.push([event.lngLat.lng, event.lngLat.lat]);
+        const ring = [...points.current];
+        if (ring.length > 2) {
+          ring.push(ring[0]);
+          const geojson = { type: "Polygon", coordinates: [ring] };
+          onPolygonRef.current?.(geojson);
+          if (map.getSource("draft")) {
+            (map.getSource("draft") as maplibregl.GeoJSONSource).setData({
+              type: "Feature",
+              geometry: geojson,
+              properties: {},
+            } as never);
+          } else if (map.isStyleLoaded()) {
+            map.addSource("draft", {
+              type: "geojson",
+              data: { type: "Feature", geometry: geojson, properties: {} } as never,
+            });
+            map.addLayer({
+              id: "draft-fill",
+              type: "fill",
+              source: "draft",
+              paint: { "fill-color": "#4dabf7", "fill-opacity": 0.2 },
+            });
+          }
         }
       });
-      if (draw) {
-        map.on("click", (event: maplibregl.MapMouseEvent) => {
-          points.current.push([event.lngLat.lng, event.lngLat.lat]);
-          const ring = [...points.current];
-          if (ring.length > 2) {
-            ring.push(ring[0]);
-            const geojson = { type: "Polygon", coordinates: [ring] };
-            onPolygonRef.current?.(geojson);
-            if (map.getSource("draft")) {
-              (map.getSource("draft") as maplibregl.GeoJSONSource).setData({
-                type: "Feature",
-                geometry: geojson,
-                properties: {},
-              } as never);
-            } else if (map.isStyleLoaded()) {
-              map.addSource("draft", {
-                type: "geojson",
-                data: { type: "Feature", geometry: geojson, properties: {} } as never,
-              });
-              map.addLayer({
-                id: "draft-fill",
-                type: "fill",
-                source: "draft",
-                paint: { "fill-color": "#4dabf7", "fill-opacity": 0.2 },
-              });
-            }
-          }
-        });
-      }
-    })();
+    }
 
     return () => {
-      cancelled = true;
+      window.clearTimeout(paintTimer);
       observer?.disconnect();
     };
   }, [Boolean(payload), draw]);
