@@ -187,8 +187,15 @@ you cannot know the origin until Vercel assigns it.
 
 ## 3b. Vercel — officer console
 
-Same account, **second** Vercel project. Root Directory `web/console`.
-Live: `https://setuconsole.vercel.app`.
+Same account, **second** Vercel project. Root Directory **must stay**
+`web/console`. Live: `https://setuconsole.vercel.app`.
+
+If that setting is empty, a git push clones the repo root, `pip install`s
+`requirements.txt`, then runs `npm run build` and dies with
+`ENOENT … /package.json`. The custom domain keeps serving the last *Ready*
+bundle, so the desk looks “stale” with no obvious failed deploy on the
+apex URL. Confirm Root Directory after any dashboard click; the 22 Aug
+push hit exactly this.
 
 **3b.1** Build-time env (baked into the bundle, same rule as the PWA):
 

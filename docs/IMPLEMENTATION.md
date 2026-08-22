@@ -1247,7 +1247,7 @@ checks the path did what the product promises.
 
 ---
 
-### 6.14 Going live: the deployed topology, and eight things that broke on the way
+### 6.14 Going live: the deployed topology, and nine things that broke on the way
 
 Deployed 21 Aug 2026. Four free-tier services, **₹0 total**, matching Part 22's
 split exactly.
@@ -1289,7 +1289,7 @@ Two deliberate choices in that task:
 acceptable (and the live logs are arguably an advantage). For real operation it
 needs Render Starter (~$7/mo) or to be folded into the API process.
 
-#### Eight things that broke, and what each one teaches
+#### Nine things that broke, and what each one teaches
 
 **1. `pywin32` has no Linux wheel.** `requirements.txt` was frozen on Windows,
 so the first Render build died with `No matching distribution found for
@@ -1360,6 +1360,15 @@ bootstrap left **5,500 duplicate ADM3 rows** on Neon (8,302 → 13,802), because
 `lgd_code` is NULL on every row so the push has no natural key to be idempotent
 on. Recovered via `fetched_at` as a discriminator after confirming all nine
 foreign keys had zero references to the new rows.
+
+**9. Vercel Root Directory drifting to the repo root.** `setuconsole`
+must build from `web/console`. When the setting is empty, a production
+push installs Python from the monorepo root and fails `npm run build`
+in ~10 s. `setuconsole.vercel.app` stays on the last Ready alias — the
+sidebar, Live chip and “no live warning” empty state look unfinished
+even though main has them. Fixed 22 Aug by a CLI `--prod` from
+`web/console` and setting `rootDirectory` back. Citizen was fine
+because its Root Directory never drifted.
 
 #### The signing-key trap
 

@@ -21,11 +21,31 @@ correct officer scope, 39 PostGIS village features clipped to Vythiri, `sw.js`
 served as `application/javascript` (the rewrite guard holding), CORS admitting
 the Vercel origins, and the worker reading and acking a probe entry off the
 deployed Upstash stream. See `docs/IMPLEMENTATION.md` §6.14 for the topology
-and the eight things that broke getting there; **§6.16** for the citizen
+and the nine things that broke getting there; **§6.16** for the citizen
 village inbox (no typed delivery ID) and the officer language pack.
 
 ⚠️ **`fcm_send` is still 0.** The primary channel is the one thing still
 unproven, and it needs a human to grant notification permission on a handset.
+
+**Demo-day now (22 Aug, this laptop).** The loop works. What still kills a
+stage run is operational, not missing code:
+
+1. **Worker is up** — `python run.py worker-cloud` is connected to Neon
+   `ep-damp-dust-az2n3wn2` and Upstash `fresh-kingfish-106444`, FCM
+   credentials present. Leave that terminal open. Sleep = silent queue.
+2. **Hosted console is the new desk** — `setuconsole.vercel.app` title is
+   **Officer desk**. GitHub auto-deploy had been failing because the Vercel
+   Root Directory drifted to the repo root (`npm run build` then looked for
+   `/package.json` and installed Python instead). Root is `web/console`
+   again. Hard-refresh if the tab still looks like the old topbar.
+3. **No live Muttil North warning** — `/ops/summary` is 0/0/0 until you
+   Send. That is empty, not broken. Do not fake the KPIs.
+4. **Enable alerts on the phone, then Send.** After-the-fact permission
+   does not rewrite a queued delivery.
+
+Do these two, in order: citizen phone **Enable alerts** → officer A/B
+**Moderate on Muttil North** → Safe. Skip siren hardware, two-phone BLE,
+IVR, HF Space, cable-pull, `ml-load` (Moderate can stay English).
 
 Live FCM credential authenticates against the real `setu-alerts` Firebase
 project; **live Twilio SMS proven end to end** — real `provider_accepted` (`twilio_sms_send`) followed by a real carrier callback writing `device_delivered` (`twilio_sms_webhook`) through an ngrok tunnel, HMAC-verified. Day-4 exit gate re-proven on a scratch DB: `upgrade head → downgrade 0006 → upgrade head` clean, and migration `0012` **fails loudly** with `PHONE_HASH_PEPPER` unset. `verify_seeds.py` now *fails* (not just reports) on empty `app_config` notes and on any alert with a NULL `incident_id`; both are at 0. Plus `test_officer_scope_covers_contained_village` (Vythiri officer → Muttil North 200; out-of-geom ADM5 403).
@@ -62,7 +82,7 @@ project; **live Twilio SMS proven end to end** — real `provider_accepted` (`tw
 | Delivery worker | **local** → cloud | `python run.py worker-cloud` |
 | ML / translations | HF Space | ❌ not deployed |
 
-**Total cost: ₹0.** Full write-up and the eight deployment failures in
+**Total cost: ₹0.** Full write-up and the nine deployment failures in
 `docs/IMPLEMENTATION.md` §6.14; step-by-step runbook in `docs/DEPLOY.md`.
 
 ⚠️ **The worker runs on a laptop.** Render's free tier has no background
