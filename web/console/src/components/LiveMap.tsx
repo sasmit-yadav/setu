@@ -124,25 +124,60 @@ function addPlaceNames(map: maplibregl.Map) {
   });
 }
 
-async function attachRemoteBasemap(map: maplibregl.Map, styleUrl: string): Promise<boolean> {
-  if (!styleUrl || map.getSource("openmaptiles")) return false;
-  const res = await fetch(styleUrl);
-  if (!res.ok) return false;
-  const style = (await res.json()) as {
-    sources?: Record<string, maplibregl.SourceSpecification>;
-    layers?: Array<maplibregl.LayerSpecification & { type: string; id: string }>;
-  };
-  if (!style.sources) return false;
-  for (const [id, spec] of Object.entries(style.sources)) {
-    if (!map.getSource(id)) map.addSource(id, spec);
+function addUnitLayers(
+  map: maplibregl.Map,
+  units: GeoFeatureCollection,
+  onUnit: ((id: number) => void) | undefined,
+) {
+  if (!map.getSource("units")) {
+    map.addSource("units", { type: "geojson", data: units as never });
   }
-  const before = map.getLayer("units-fill") ? "units-fill" : undefined;
-  for (const layer of style.layers ?? []) {
-    if (layer.type === "background" || layer.type === "symbol") continue;
-    if (map.getLayer(layer.id)) continue;
-    map.addLayer(layer, before);
+  if (!map.getLayer("units-fill")) {
+    map.addLayer({
+      id: "units-fill",
+      type: "fill",
+      source: "units",
+      paint: {
+        "fill-color": [
+          "case",
+          ["==", ["typeof", ["get", "recipient_reach_pct"]], "number"],
+          [
+            "interpolate",
+            ["linear"],
+            ["get", "recipient_reach_pct"],
+            0,
+            "#ff6b6b",
+            50,
+            "#ffa94d",
+            100,
+            "#51cf66",
+          ],
+          "#4dabf7",
+        ],
+        "fill-opacity": [
+          "case",
+          ["==", ["typeof", ["get", "recipient_reach_pct"]], "number"],
+          0.38,
+          0.18,
+        ],
+      },
+    });
   }
-  return Boolean(map.getSource("openmaptiles") || map.getSource("ne2_shaded"));
+  if (!map.getLayer("units-line")) {
+    map.addLayer({
+      id: "units-line",
+      type: "line",
+      source: "units",
+      paint: { "line-color": "#f4f7fb", "line-width": 1.8 },
+    });
+  }
+  if (onUnit) {
+    map.on("click", "units-fill", (event: maplibregl.MapLayerMouseEvent) => {
+      const raw = event.features?.[0]?.properties?.unit_id;
+      const id = typeof raw === "number" ? raw : Number(raw);
+      if (Number.isFinite(id)) onUnit(id);
+    });
+  }
 }
 
 async function attachBasemap(
@@ -342,79 +377,38 @@ export function LiveMap({
     const first = payload;
     const bootCfg = cfg;
 
+    const remote = String(
+      bootCfg?.["map.openfreemap_style_url"] ?? first.openfreemap_style_url ?? "",
+    );
+    const useRemote = Boolean(remote && navigator.onLine);
     const map = new maplibregl.Map({
       container,
-      style: baseStyle() as never,
-        center: first.center,
-        zoom: first.zoom,
-        attributionControl: { compact: true },
-      });
+      style: useRemote ? remote : (baseStyle() as never),
+      center: first.center,
+      zoom: first.zoom,
+      attributionControl: { compact: true },
+    });
       mapRef.current = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
       observer = new ResizeObserver(() => map.resize());
       observer.observe(container);
       map.on("load", () => {
         map.resize();
-        map.addSource("units", { type: "geojson", data: first.units as never });
-        map.addLayer({
-          id: "units-fill",
-          type: "fill",
-          source: "units",
-          paint: {
-            "fill-color": [
-              "case",
-              ["==", ["typeof", ["get", "recipient_reach_pct"]], "number"],
-              [
-                "interpolate",
-                ["linear"],
-                ["get", "recipient_reach_pct"],
-                0,
-                "#ff6b6b",
-                50,
-                "#ffa94d",
-                100,
-                "#51cf66",
-              ],
-              "#6b7c90",
-            ],
-            "fill-opacity": 0.72,
-          },
-        });
-        map.addLayer({
-          id: "units-line",
-          type: "line",
-          source: "units",
-          paint: { "line-color": "#e8eef6", "line-width": 1.6 },
-        });
-        map.on("click", "units-fill", (event: maplibregl.MapLayerMouseEvent) => {
-          const raw = event.features?.[0]?.properties?.unit_id;
-          const id = typeof raw === "number" ? raw : Number(raw);
-          if (Number.isFinite(id)) onUnitRef.current?.(id);
-        });
+        addUnitLayers(map, first.units, draw ? undefined : (id) => onUnitRef.current?.(id));
         applySources(map, first, !draw);
         fitFeatures(map, first);
         placeLabels(map, first, labelMarkers.current);
-        void (async () => {
-          const remote = String(
-            bootCfg?.["map.openfreemap_style_url"] ?? first.openfreemap_style_url ?? "",
-          );
-          let remoteOk = false;
-          if (remote && navigator.onLine) {
-            try {
-              remoteOk = await attachRemoteBasemap(map, remote);
-            } catch {
-              remoteOk = false;
-            }
-          }
-          if (!remoteOk) {
-            await attachBasemap(map, bootCfg, first);
-            try {
-              addPlaceNames(map);
-            } catch {
-              return;
-            }
-          }
-        })().catch(() => undefined);
+        if (!useRemote) {
+          void attachBasemap(map, bootCfg, first)
+            .then(() => {
+              try {
+                addPlaceNames(map);
+              } catch {
+                return;
+              }
+            })
+            .catch(() => undefined);
+        }
       });
       if (draw) {
         map.on("click", (event: maplibregl.MapMouseEvent) => {
