@@ -190,12 +190,24 @@ async def preview_exposure(conn: asyncpg.Connection, alert_id: int) -> dict[str,
         raise ComposeError("alert_not_found", "Alert not found")
     rows = await conn.fetch(
         """
+        WITH devices AS (
+          SELECT COALESCE(
+                   (SELECT string_to_array(value, ',') FROM app_config
+                     WHERE key = 'recipient.device_kinds'),
+                   ARRAY[]::text[]
+                 ) AS kinds
+        )
         SELECT u.id, u.name, u.population, u.building_count,
                COUNT(DISTINCT r.id) AS recipients
         FROM admin_unit u
+        CROSS JOIN devices
         JOIN alert a ON a.id = $1
         LEFT JOIN recipient r ON r.unit_id = u.id
           AND r.consented_at IS NOT NULL AND r.opted_out_at IS NULL
+          -- The preview is what an officer reads as "people here". A village
+          -- siren is a delivery target but not a person, so it is counted for
+          -- dispatch and not for this figure. Same key as v_reachability.
+          AND NOT (r.kind = ANY (devices.kinds))
         WHERE ST_Intersects(u.geom, a.area)
         GROUP BY u.id, u.name, u.population, u.building_count
         ORDER BY recipients DESC, u.name

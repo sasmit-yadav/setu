@@ -184,6 +184,7 @@ INSERT INTO app_config (key, value, unit, note) VALUES
 
 -- ═══ B9 Human Relay ═══
 INSERT INTO app_config (key, value, unit, note) VALUES
+  ('recipient.device_kinds', 'village_siren', 'csv', 'Recipient kinds that are village hardware, not people — excluded from every count the desk labels "people", still targeted for delivery'),
   ('relay.escalate_on_channels_exhausted', 'true', 'bool', '§7.4 — the branch that makes channels_exhausted not the end of the line'),
   ('relay.node_kind_priority', 'panchayat,police,health_worker,school,volunteer,shelter', 'csv',
      'Order relay nodes are tried. Institutional before individual'),

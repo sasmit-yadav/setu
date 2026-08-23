@@ -215,10 +215,14 @@ async def check_db(env: dict[str, str], alert_id: int) -> None:
             """,
             DEMO_UNIT,
         )
+        devices = (await conn.fetchval(
+            "SELECT value FROM app_config WHERE key = 'recipient.device_kinds'"
+        ) or "").split(",")
+        people = [r for r in recipients if r["kind"] not in devices]
         record(
-            PASS if recipients else FAIL,
-            f"consented recipients in {DEMO_UNIT}",
-            str(len(recipients)),
+            PASS if people else FAIL,
+            f"people we can warn in {DEMO_UNIT}",
+            f"{len(people)} people + {len(recipients) - len(people)} village device(s)",
         )
         for r in recipients:
             record(

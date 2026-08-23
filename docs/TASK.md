@@ -111,6 +111,21 @@ the terminal visible. The ladder still strikes device_delivered / opened /
 acknowledged, because the adapter declares it cannot prove them — a siren
 cannot tell you anyone heard it.
 
+**The nowcast does not duplicate itself — that read was wrong.** The identifier
+is `unit_id:hour` (`services/ingestion/adapters/thunderstorm.py`), so six rows
+for Donka are six different forecast hours, not six copies. Only the headline
+was ambiguous; it now carries the hour. Official feeds had **0 on Indian
+soil**, our own nowcast had **5 Indian sub-districts** across their flagged
+hours — both true at once, and the nowcast is `is_authoritative = false` so it
+cannot dispatch anything.
+
+**A village siren is a recipient but not a person.** `village_siren` sits in
+`app_config` under `recipient.device_kinds`; migration **0017** teaches
+`v_reachability` and the Compose preview to leave it out of any figure the desk
+labels "people". Muttil North reads **5 people + 1 village device**. Delivery
+targeting is unchanged — the siren is still dispatched and still carries three
+struck-through rungs.
+
 **Peer relay needs no code.** `relay.ts` does attempt real Web Bluetooth
 GATT as a *central*; what a browser cannot do is *advertise* as a peripheral.
 So phone-to-phone browser BLE is out, but browser → a real peripheral works
