@@ -289,6 +289,36 @@ def ingest() -> None:
     must([PY, "-m", "services.ingestion.scheduler"])
 
 
+@task("Poll USGS + GDACS once into the DEPLOYED Neon (.env.cloud)")
+def ingest_cloud() -> None:
+    """Fill the console's "From official sites" inbox on the deployed stack.
+
+    `ingest` reads .env, so every poll landed in local Docker and the hosted
+    console's draft inbox stayed empty — which read as "the feeds are quiet"
+    when the feeds were never asked. This is the same pollers against Neon.
+
+    One pass, not a daemon: it writes drafts and exits. Ingested rows are
+    always lifecycle_status 'draft' (services/ingestion/persist.py), so this
+    cannot dispatch anything to a phone no matter what the feed says. Pass
+    --watch to hold the terminal and keep polling on the seeded intervals.
+    """
+    cloud = ROOT / ".env.cloud"
+    if not cloud.exists():
+        print(
+            "Missing .env.cloud - refusing to fall back to .env, because that "
+            "would fill the LOCAL draft inbox while looking like the deployed one.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    env = os.environ.copy()
+    env.update(_parse_env_file(cloud))
+    watch = "--watch" in sys.argv
+    target = env.get("DATABASE_URL_DIRECT", "").split("@")[-1].split("/")[0]
+    print(f"ingest -> db {target} ({'watching' if watch else 'one pass'})")
+    args = [] if watch else ["--once"]
+    must([PY, "-m", "services.ingestion.scheduler", *args], env=env)
+
+
 @task("Apply data/seeds/04_app_config.sql idempotently (ON CONFLICT upsert)")
 def seed_config() -> None:
     must([PY, "scripts/upsert_app_config.py"])

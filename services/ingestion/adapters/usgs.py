@@ -21,14 +21,21 @@ class UsgsAdapter:
         bbox: dict[str, float],
         timeout_s: int,
         not_modified_status: int,
+        min_magnitude: float | None = None,
     ) -> None:
         self._feed_url = feed_url
         self._bbox = bbox
         self._timeout_s = timeout_s
         self._not_modified_status = not_modified_status
+        # Optional because the India bbox is small enough to ingest unfiltered.
+        # Widen the bbox toward global and it stops being optional in practice:
+        # USGS lists every micro-quake it records, so a worldwide poll without
+        # this returns hundreds of M1s a day and buries the officer's inbox.
+        # Left None when absent so the existing seeded config is unchanged.
+        self._min_magnitude = min_magnitude
 
     def _params(self, since: datetime) -> dict[str, Any]:
-        return {
+        params: dict[str, Any] = {
             "format": "geojson",
             "starttime": since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
             "minlatitude": self._bbox["minlatitude"],
@@ -36,6 +43,9 @@ class UsgsAdapter:
             "minlongitude": self._bbox["minlongitude"],
             "maxlongitude": self._bbox["maxlongitude"],
         }
+        if self._min_magnitude is not None:
+            params["minmagnitude"] = self._min_magnitude
+        return params
 
     async def discover(self, since: datetime) -> AsyncIterator[str]:
         async with httpx.AsyncClient(timeout=self._timeout_s) as client:

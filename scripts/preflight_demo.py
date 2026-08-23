@@ -245,6 +245,36 @@ async def check_db(env: dict[str, str], alert_id: int) -> None:
         )
         record(PASS if nodes else WARN, "active relay nodes", str(nodes))
 
+        # "In India" is intersecting an admin_unit we could actually target -
+        # the same predicate the targeting engine uses. A lat/lon rectangle
+        # around India also contains Kabul and Kathmandu, so counting by bbox
+        # reports foreign earthquakes as domestic.
+        for source in ("usgs", "gdacs"):
+            total = await conn.fetchval(
+                "SELECT count(*) FROM alert WHERE source_id = $1 AND lifecycle_status = 'draft'",
+                source,
+            )
+            domestic = await conn.fetchval(
+                """
+                SELECT count(*) FROM alert a
+                WHERE a.source_id = $1 AND a.lifecycle_status = 'draft'
+                  AND EXISTS (
+                    SELECT 1 FROM admin_unit u WHERE ST_Intersects(u.geom, a.area)
+                  )
+                """,
+                source,
+            )
+            record(
+                PASS if total else WARN,
+                f"{source} live drafts",
+                f"{total} worldwide, {domestic} on Indian soil",
+            )
+        nowcast = await conn.fetchval(
+            "SELECT count(*) FROM alert WHERE source_id = 'thunderstorm_nowcast'"
+            " AND lifecycle_status = 'draft'"
+        )
+        record(PASS, "our nowcast drafts", f"{nowcast} (our model - never authoritative)")
+
         for name in REQUIRED_ENV:
             record(
                 PASS if env.get(name) else FAIL,
