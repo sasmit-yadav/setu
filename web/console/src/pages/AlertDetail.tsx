@@ -10,6 +10,7 @@ import {
   type ValidateResponse,
 } from "../lib/api";
 import { lookup, useT } from "../lib/i18n";
+import { shortDateTime } from "../lib/time";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { QualityGate } from "../components/QualityGate";
 import { ApprovalPanel } from "../components/ApprovalPanel";
@@ -109,7 +110,10 @@ export function AlertDetail({
       setNotice({
         tone: res.already_sounded ? "warn" : "ok",
         text: res.already_sounded
-          ? t("siren.already", { n: res.sirens })
+          ? t("siren.already", {
+              seconds: res.cooldown_seconds ?? 0,
+              when: res.last_sounded_at ? shortDateTime(res.last_sounded_at) : "",
+            })
           : t("siren.done", { n: res.sirens }),
       });
       await refresh();

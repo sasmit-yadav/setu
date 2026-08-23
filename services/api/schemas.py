@@ -46,6 +46,8 @@ class SirenResponse(BaseModel):
     # True when the button was pressed twice. Reported rather than silently
     # sounding a village a second time.
     already_sounded: bool = False
+    last_sounded_at: str | None = None
+    cooldown_seconds: int | None = None
 
 
 class DispatchResponse(BaseModel):

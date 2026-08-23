@@ -62,7 +62,7 @@ const EN: Record<string, string> = {
   "siren.hint": "Wakes the whole village, phone or no phone. Not part of Send.",
   "siren.confirm": "Sound the village siren for this warning? It wakes everyone, including people with no phone.",
   "siren.done": "Siren sounded ({n}).",
-  "siren.already": "Already sounded for this warning ({n}). Not sounded again.",
+  "siren.already": "Sounded at {when}. Wait {seconds}s before sounding again.",
   "siren.none": "No siren registered for this area.",
   "siren.notLive": "The warning must be live before a siren can sound.",
   "siren.fail": "Could not sound the siren. Nothing was sent.",

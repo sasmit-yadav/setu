@@ -189,6 +189,7 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('relay.node_kind_priority', 'panchayat,police,health_worker,school,volunteer,shelter', 'csv',
      'Order relay nodes are tried. Institutional before individual'),
   ('delivery.extreme_channel_delay_s', 'ivr:10', 'csv', 'Absolute delay per channel on an Extreme fan-out, seconds from dispatch. Push and SMS are unlisted so they go together; the voice call waits so the handset is not ringing while the message lands. Not an escalation — every channel still goes. Empty = all at once'),
+  ('siren.resound_cooldown_s', '60', 'seconds', 'Refuse a repeat press inside this window so a double-tap cannot wake a village twice. Outside it, sounding again is legitimate — a long emergency needs reminders'),
   ('relay.silence_minutes', '15', 'minutes', 'A phone that was reached but has not replied for this long is a village that may not have heard — the desk suggests a runner, it does not send one'),
   ('relay.confirm_timeout_minutes', '20', 'minutes', 'No DTMF confirmation in this window -> re-call once, then relay.unconfirmed');
 

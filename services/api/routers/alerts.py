@@ -423,37 +423,59 @@ async def sound_siren(
     if not recipient_ids:
         raise HTTPException(status_code=404, detail="no_siren_registered_in_area")
 
-    # Pressing twice must not sound it twice. Report the existing rows instead.
-    existing = await conn.fetch(
+    # A double-tap must not sound the village twice, but a siren is genuinely
+    # sounded again during a long emergency - as a reminder, or because the
+    # first one plainly did not carry. So this is a cooldown, not a permanent
+    # block: inside the window the press is refused and reported, outside it the
+    # siren sounds again as the next attempt on the same delivery key.
+    cooldown_s = await config_repo.get_int(conn, "siren.resound_cooldown_s")
+    recent = await conn.fetchrow(
         """
-        SELECT id FROM delivery
+        SELECT max(COALESCE(sent_at, queued_at, now())) AS last_at, count(*) AS n
+        FROM delivery
         WHERE alert_id = $1 AND channel_id = $2 AND recipient_id = ANY($3::bigint[])
+          AND COALESCE(sent_at, queued_at, now()) > now() - make_interval(secs => $4)
         """,
         alert_id,
         siren_channel,
         recipient_ids,
+        cooldown_s,
     )
-    if existing:
+    if recent and int(recent["n"] or 0) > 0:
         return SirenResponse(
             alert_id=alert_id,
-            sirens=len(existing),
-            delivery_ids=[int(r["id"]) for r in existing],
+            sirens=int(recent["n"]),
+            delivery_ids=[],
             already_sounded=True,
+            last_sounded_at=recent["last_at"].isoformat() if recent["last_at"] else None,
+            cooldown_seconds=cooldown_s,
         )
 
     delivery_ids: list[int] = []
     async with conn.transaction():
         for recipient_id in recipient_ids:
+            # Next attempt on the same key, so re-sounding is recorded as its own
+            # delivery with its own ladder rather than overwriting the first.
+            next_attempt = await conn.fetchval(
+                """
+                SELECT COALESCE(max(attempt), 0) + 1 FROM delivery
+                WHERE alert_id = $1 AND recipient_id = $2 AND channel_id = $3
+                """,
+                alert_id,
+                recipient_id,
+                siren_channel,
+            )
             delivery_id = await conn.fetchval(
                 """
-                INSERT INTO delivery (alert_id, recipient_id, channel_id, state, simulated)
-                VALUES ($1, $2, $3, 'pending', false)
+                INSERT INTO delivery (alert_id, recipient_id, channel_id, attempt, state, simulated)
+                VALUES ($1, $2, $3, $4, 'pending', false)
                 ON CONFLICT (alert_id, recipient_id, channel_id, attempt) DO NOTHING
                 RETURNING id
                 """,
                 alert_id,
                 recipient_id,
                 siren_channel,
+                int(next_attempt),
             )
             if delivery_id is not None:
                 delivery_ids.append(int(delivery_id))
