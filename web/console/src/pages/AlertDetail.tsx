@@ -109,12 +109,15 @@ export function AlertDetail({
       const res = await endpoints.soundSiren(id);
       setNotice({
         tone: res.already_sounded ? "warn" : "ok",
-        text: res.already_sounded
-          ? t("siren.already", {
-              seconds: res.cooldown_seconds ?? 0,
-              when: res.last_sounded_at ? shortDateTime(res.last_sounded_at) : "",
-            })
-          : t("siren.done", { n: res.sirens }),
+        text: !res.already_sounded
+          ? t("siren.done", { n: res.sirens })
+          : res.last_sounded_at
+            ? t("siren.already", {
+                seconds: res.cooldown_seconds ?? 0,
+                when: shortDateTime(res.last_sounded_at),
+              })
+            // No timestamp means one is queued rather than recently sounded.
+            : t("siren.inFlight"),
       });
       await refresh();
     } catch (err) {

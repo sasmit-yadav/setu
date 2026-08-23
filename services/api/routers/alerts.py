@@ -429,12 +429,34 @@ async def sound_siren(
     # block: inside the window the press is refused and reported, outside it the
     # siren sounds again as the next attempt on the same delivery key.
     cooldown_s = await config_repo.get_int(conn, "siren.resound_cooldown_s")
+
+    # A siren still waiting for the worker has no timestamps yet. The cooldown
+    # query used to COALESCE those to now(), which made an unsent row look
+    # eternally just-sounded - so if the worker were down the siren became
+    # permanently unsoundable, and the message blamed a cooldown. In flight is
+    # its own answer, and it does not expire.
+    in_flight = await conn.fetchval(
+        """
+        SELECT 1 FROM delivery
+        WHERE alert_id = $1 AND channel_id = $2 AND recipient_id = ANY($3::bigint[])
+          AND state IN ('pending', 'queued')
+        LIMIT 1
+        """,
+        alert_id,
+        siren_channel,
+        recipient_ids,
+    )
+    if in_flight:
+        return SirenResponse(
+            alert_id=alert_id, sirens=0, delivery_ids=[], already_sounded=True,
+        )
+
     recent = await conn.fetchrow(
         """
-        SELECT max(COALESCE(sent_at, queued_at, now())) AS last_at, count(*) AS n
+        SELECT max(COALESCE(sent_at, queued_at)) AS last_at, count(*) AS n
         FROM delivery
         WHERE alert_id = $1 AND channel_id = $2 AND recipient_id = ANY($3::bigint[])
-          AND COALESCE(sent_at, queued_at, now()) > now() - make_interval(secs => $4)
+          AND COALESCE(sent_at, queued_at) > now() - make_interval(secs => $4)
         """,
         alert_id,
         siren_channel,
