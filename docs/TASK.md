@@ -111,6 +111,50 @@ the terminal visible. The ladder still strikes device_delivered / opened /
 acknowledged, because the adapter declares it cannot prove them — a siren
 cannot tell you anyone heard it.
 
+### 23 Aug — what changed today
+
+**The siren is an officer's button, not part of Send.** It used to fire on every
+dispatch only because the hardware was a recipient row with no phone and no
+token, so the resolver fell through to the one channel needing no address.
+`POST /alerts/{id}/siren` — live alerts only, confirm step, `siren.sounded` in
+the ledger with the officer's email, `siren.resound_cooldown_s` (60) refusing a
+double-tap while still allowing a deliberate re-sound as the next attempt.
+Village hardware is out of `recipients_in_area`, so a loudspeaker no longer
+counts as one of the people we will warn.
+
+**Translation runs for real.** IndicTrans2 dist-200M in Docker
+(`python run.py ml-docker`), because IndicTransToolkit ships a Cython extension
+with no Windows wheel. Any wording an officer composes is translated to ml/hi/mr
+before Send, and `model_registry` row 2 is the model registering itself.
+`requirements-ml.txt` had two bugs that would have broken the HF Space
+identically: `sentencepiece` missing, and `transformers` bounded `<5` when 4.47
+replaced the tuple cache the model card still indexes.
+
+**Extreme channel timing:** `delivery.extreme_channel_delay_s = 'ivr:10'` —
+push and SMS together, call ten seconds later.
+
+**The desk notices silence.** Anyone reached on a real channel who has said
+nothing after `relay.silence_minutes` (15) shows as a prompt on Live Ops with a
+button through to the runner desk, which now names the contact, their
+designation and their number (officer/state_admin only — not auditor, not
+relay_node).
+
+**Relay contacts are real.** The seeded rows were sealed with the literal
+`'CHANGE-ME'` key and *raised* on decrypt rather than failing cleanly, so the
+runner path could never place a call. Six named contacts on Muttil North now,
+four carrying a verified line.
+
+**Bugs fixed that would have shown on stage:** an HTTP transport error from any
+channel adapter failed the whole batch and left the stream message unacked,
+stranding the delivery with nothing to retry it; `normalize_phone_e164` accepted
+`12345` as a number; `winsound.Beep` never reaches the sound card; a Malayalam
+headline crashed the siren listener twice (encode on output, decode on input).
+
+**New scripts:** `preflight_demo.py` (32 read-only checks),
+`demo_readiness.py` (roadmap claims vs the live system),
+`check_orphan_config.py` (config seeded but never read),
+`cache_translation.py`, `siren_listener.py --test`.
+
 **Seven config keys describe behaviour no code implements.**
 `python scripts/check_orphan_config.py` lists them. This is the shape of bug
 that produced B3 — a whole retry policy seeded per severity and read by

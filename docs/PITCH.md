@@ -95,10 +95,13 @@ you send.
 distinct officers. A USGS earthquake does not wait — the feed is the
 authoriser, and we write that provenance on the row.
 
-**Deliver.** On Extreme, every numbered phone gets push, SMS and a voice
-call in the same second. Severe uses the same three channels but waits
-between them so we do not spend Twilio on a Moderate that a push already
-covered.
+**Deliver.** On Extreme, every numbered phone gets push and SMS at once and
+a voice call ten seconds later — all three go regardless; the gap only stops
+the handset ringing while the message is still landing. Severe uses the same
+three channels but waits far longer between them, so we do not spend Twilio on
+a Moderate that a push already covered. The siren is **not** part of Send: it
+wakes a whole village whether or not anyone there owns a phone, so an officer
+presses it against a named warning and the ledger carries their name.
 
 **Predict.** A reach-failure score from terrain, towers and rainfall. It is
 badged **bootstrap**. We say n equals two out loud — Wayanad and
@@ -223,9 +226,11 @@ entered by hand and carries NULL, and the difference is visible in the data.
 Where a language has no cached row the app falls back to the source text and
 prints the reason on screen.
 
-**Channels.** Firebase FCM, Twilio SMS and IVR, optional email, simulated
-siren flagged `simulated=true` and badged **SIM**, human relay, signed
-peer payload. Ed25519 signed on the server, verified on the device before
+**Channels.** Firebase FCM, Twilio SMS and IVR, optional email, a siren fired
+by webhook to a real controller (a laptop stands in for the panchayat's) and
+sounded by an officer rather than by the dispatch, human relay, signed peer
+payload. Anything that does fall back to the simulated carrier is flagged
+`simulated=true` and badged **SIM**. Ed25519 signed on the server, verified on the device before
 anything renders. An unverified payload is discarded silently — a
 “suspicious alert” banner is its own panic vector.
 
