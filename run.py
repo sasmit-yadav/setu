@@ -407,6 +407,18 @@ def ml_docker() -> None:
     started, which is what you want on a demo morning.
     """
     rebuild = "--rebuild" in sys.argv
+    # Without this, a stopped daemon makes `docker image inspect` fail, which
+    # reads as "no image" and silently kicks off a 20-minute rebuild. That is
+    # exactly what happened after a `wsl --shutdown` for disk compaction.
+    if subprocess.run(
+        ["docker", "info"], capture_output=True, check=False
+    ).returncode != 0:
+        print(
+            "Docker daemon is not responding. Start Docker Desktop, wait for "
+            "it to report Running, then run this again.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     have_image = (
         subprocess.run(
             ["docker", "image", "inspect", ML_IMAGE],
