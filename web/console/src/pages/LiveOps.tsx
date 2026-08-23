@@ -118,6 +118,15 @@ export function LiveOps({
   const feedRows = current.filter((a) => a.source_id === "usgs" || a.source_id === "gdacs");
   const feedDomestic = feedRows.filter((a) => a.domestic).length;
   const feedForeign = feedRows.length - feedDomestic;
+  // Our own nowcast is why "0 in India" from the official feeds can sit above a
+  // table showing 23 Indian rows. Both are true; the desk has to say which is
+  // which or the two numbers look like a contradiction.
+  const nowcastDomestic = current.filter(
+    (a) => a.source_id === "thunderstorm_nowcast" && a.domestic,
+  ).length;
+  const nowcastVisible = visibleAlerts.filter(
+    (a) => a.source_id === "thunderstorm_nowcast",
+  ).length;
 
   const virtualizer = useVirtualizer({
     count: visibleAlerts.length,
@@ -197,8 +206,10 @@ export function LiveOps({
               ? t("live.tallyIndiaOnly", { domestic: feedDomestic, foreign: feedForeign })
               : t("live.tallyWorld", { total: feedRows.length, domestic: feedDomestic })}
         </p>
-        {visibleOfficial.length === 0 && (
-          <p className="muted">{t("live.officialNoneHere")}</p>
+        {nowcastDomestic > 0 && (
+          <p className="scope__tally muted">
+            {t("live.tallyOwnNowcast", { n: nowcastDomestic })}
+          </p>
         )}
         <ul className="inbox__list">
           {visibleOfficial.map((row) => (
@@ -315,6 +326,12 @@ export function LiveOps({
                 shown: visibleAlerts.length,
                 scope: scope === "india" ? t("live.scopeIndia") : t("live.scopeWorld"),
               })}
+              {nowcastVisible > 0
+                ? " " + t("live.tallyNowcastPart", {
+                    warnings: visibleAlerts.length - nowcastVisible,
+                    nowcast: nowcastVisible,
+                  })
+                : ""}
             </p>
           )}
         </section>

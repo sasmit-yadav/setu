@@ -148,7 +148,9 @@ async def parse_thunderstorm(conn: asyncpg.Connection, raw: RawAlert) -> ParsedA
         # six copies — but a headline naming only the place made them read
         # as duplicates on the desk, which is how they got dismissed as a
         # dedup bug. Name the hour so the rows read as a timeline.
-        headline=f"Thunderstorm nowcast — {unit_name}, {hour:%H:%M} UTC",
+        # Place first, then the hour: the desk truncates this column, and
+        # "Thunderstorm nowcast ..." told the officer nothing at all.
+        headline=f"{unit_name} — thunderstorm {hour:%H:%M} UTC",
         body=(
             f"Open-Meteo convective risk {risk:.2f} for {unit_name}. "
             "Threshold model on live CAPE/Lifted-Index/CIN — not an official IMD warning. "
