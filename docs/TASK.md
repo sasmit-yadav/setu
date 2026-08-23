@@ -4,8 +4,15 @@ Status-based, not day-based. Update this file whenever a task's status
 changes — this is the file to open to answer "what do I do next."
 
 For "how does the system work / why is it built this way," see
-`docs/IMPLEMENTATION.md`, not this file. Product docs under `docs/` are
-only this file, `IMPLEMENTATION.md`, and `SETU_MASTER_v3.0_MERGED.md`.
+`docs/IMPLEMENTATION.md`, not this file. Docs under `docs/`, and nothing else:
+
+| File | Answers |
+|---|---|
+| `TASK.md` | what do I do next, and what is still loose |
+| `IMPLEMENTATION.md` | how it works and why it is built this way |
+| `STARTUP.md` | how do I start the whole thing on this machine |
+| `PITCH.md` | what do I say on stage |
+| `SETU_MASTER_v3.0_MERGED.md` | the original design spec |
 
 **Legend:** 🔴 Blocked (needs an external account/credential/decision) ·
 🟡 Ready to build (nothing blocking) · 🟢 Done · ⚪ Not started, not urgent

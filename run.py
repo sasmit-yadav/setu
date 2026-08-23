@@ -346,6 +346,26 @@ def citizen_dev() -> None:
     )
 
 
+@task("Start officer console dev server on :5173")
+def console_dev() -> None:
+    """The desk, against whichever API is on :8000.
+
+    Mirrors citizen-dev. vite.config.ts proxies /api and the ops WebSocket to
+    :8000, so this talks to `api` or `api-cloud` depending on which one is up -
+    and api-cloud is the one that can reach the translator, which is why a new
+    headline only auto-translates on the local desk.
+    """
+    console_dir = ROOT / "web" / "console"
+    if not (console_dir / "node_modules").exists():
+        must(["npm", "install"], cwd=console_dir)
+    env = os.environ.copy()
+    # Same reason as citizen-dev: an empty base uses the Vite proxy rather than
+    # a Render URL baked in at build time.
+    env["VITE_API_BASE"] = env.get("VITE_API_BASE", "")
+    print("console -> API proxy /api -> http://127.0.0.1:8000 | :5173")
+    must(["npm", "run", "dev", "--", "--host", "--port", "5173"], cwd=console_dir, env=env)
+
+
 @task("Re-run geometry loaders against Neon (.env.neon)")
 def neon_geometry() -> None:
     must([PY, "scripts/push_geometry_to_neon.py"])
