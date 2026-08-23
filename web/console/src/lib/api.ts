@@ -158,6 +158,27 @@ export interface Me {
 
 export type Severity = "extreme" | "severe" | "moderate" | "minor";
 
+/** Worst first. A desk sorted by arrival time buries an Extreme under twenty
+ *  Moderates, which is the opposite of what the column "How serious" is for.
+ *  Declared next to the type so the two cannot drift apart. */
+export const SEVERITY_RANK: Record<string, number> = {
+  extreme: 4,
+  severe: 3,
+  moderate: 2,
+  minor: 1,
+};
+
+export function bySeverityThenTime(
+  a: { severity: string; effective_at: string },
+  b: { severity: string; effective_at: string },
+): number {
+  // Unknown severity sorts last rather than as "minor" — inventing a rank for
+  // a value we do not recognise is how a real Extreme could end up buried.
+  const rank = (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0);
+  if (rank !== 0) return rank;
+  return b.effective_at.localeCompare(a.effective_at);
+}
+
 export interface AlertSummary {
   id: number;
   incident_id: number | null;

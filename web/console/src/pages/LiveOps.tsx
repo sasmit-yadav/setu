@@ -15,6 +15,7 @@ import { SeverityBadge } from "../components/SeverityBadge";
 import { Kpi } from "../components/Kpi";
 import { LiveMap } from "../components/LiveMap";
 import { ReplyInbox } from "../components/ReplyInbox";
+import { bySeverityThenTime } from "../lib/api";
 import { useOpsSocket } from "../lib/useOpsSocket";
 import { saidLabel, viaLabel } from "../lib/replies";
 
@@ -140,8 +141,8 @@ export function LiveOps({
     (a) => a.lifecycle_status !== "cancelled" && a.lifecycle_status !== "superseded",
   );
   const inScope = (a: AlertSummary) => scope === "world" || a.domestic;
-  const visibleAlerts = current.filter(inScope);
-  const visibleOfficial = official.filter(inScope);
+  const visibleAlerts = current.filter(inScope).sort(bySeverityThenTime);
+  const visibleOfficial = official.filter(inScope).sort(bySeverityThenTime);
 
   // Counted over the official external feeds only. Our own nowcast and an
   // officer's own draft are not "what the feeds are reporting".
