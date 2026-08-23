@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 DEMO_UNIT = 8157
 SIREN_HEALTH_URL = "http://127.0.0.1:9099/"
-OFFICERS = ("officer.a@setu.example", "officer.b@setu.example")
+OFFICERS = ("vythiri.a@setu.example", "vythiri.b@setu.example")
 REQUIRED_ENV = (
     "TWILIO_ACCOUNT_SID",
     "TWILIO_AUTH_TOKEN",

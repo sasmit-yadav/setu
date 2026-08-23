@@ -22,8 +22,8 @@ INSERT INTO app_user (email, role, unit_scope_id, active) VALUES
   -- composes and approves; Officer B provides the independent second approval
   -- from a different login. One officer clicking twice yields ONE row
   -- (UNIQUE (alert_id, approver_id)) and never satisfies a quorum of 2.
-  ('officer.a@setu.example',     'officer',     NULL, true),
-  ('officer.b@setu.example',     'officer',     NULL, true),
+  ('vythiri.a@setu.example',     'officer',     NULL, true),
+  ('vythiri.b@setu.example',     'officer',     NULL, true),
 
   -- State admin: the only role permitted to close an incident (Part 26).
   ('state.admin@setu.example',   'state_admin', NULL, true),

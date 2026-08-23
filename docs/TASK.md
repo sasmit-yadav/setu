@@ -579,7 +579,7 @@ On the citizen phone (or localhost Chrome): sign in, tap **Enable alerts**,
 then send a **new** warning. Push permission after the fact does not rewrite
 an already-queued delivery. Trial IVR: any key, then 1 or 2.
 
-Officers: `officer.a@setu.example` / `officer.b@setu.example` (Vythiri).
+Officers: `vythiri.a@setu.example` / `vythiri.b@setu.example` (Vythiri).
 Help needed = trapped person → assign team. Send a runner = village unreached
 → “I told people in person.”
 

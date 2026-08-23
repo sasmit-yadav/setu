@@ -5,8 +5,8 @@ Credentials are NEVER written into data/seeds/*.sql. 06_app_users.sql creates
 accounts with password_hash = NULL, which means "cannot log in" — so committing
 it creates no usable credential, and a leaked repo grants no access.
 
-    python scripts/set_password.py officer.a@setu.local
-    python scripts/set_password.py officer.a@setu.local --random
+    python scripts/set_password.py vythiri.a@setu.local
+    python scripts/set_password.py vythiri.a@setu.local --random
 
 --random prints a generated password ONCE and does not store it anywhere but
 the bcrypt hash in the database. Use it for the demo accounts; use the

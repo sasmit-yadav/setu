@@ -7,7 +7,7 @@ from services.api import config_repo
 
 
 async def test_lookup_unit_finds_configured_officer_scope(db_conn):
-    name = await config_repo.get(db_conn, "demo.unit_scope.officer.a@setu.example")
+    name = await config_repo.get(db_conn, "demo.unit_scope.vythiri.a@setu.example")
     if not name:
         pytest.skip("demo.unit_scope keys not seeded — run python run.py seed-config")
     unit_id = await lookup_unit(db_conn, name)

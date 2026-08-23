@@ -549,7 +549,7 @@ delivery evidence below is the real part. Recipients:
 Trial IVR: press **any key** for Twilio’s trial lady, **then** 1 (safe) /
 2 (help).
 
-Officers: `officer.a@setu.example` / `officer.b@setu.example`, scope
+Officers: `vythiri.a@setu.example` / `vythiri.b@setu.example`, scope
 Vythiri ADM3 **3081**. Password is `SETU_DEMO_PASSWORD` in `.env` — never
 read it aloud, never put it on a slide.
 

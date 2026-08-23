@@ -138,7 +138,7 @@ async def test_officer_sees_ivr_reply_on_the_alert(db_conn, delivery_row):
     await record_from_dtmf(db_conn, delivery_row["id"], digit)
     token, _ = await issue_access_token(
         db_conn,
-        Principal(user_id=1, email="officer.a@setu.example", role=OFFICER, unit_scope_id=None),
+        Principal(user_id=1, email="vythiri.a@setu.example", role=OFFICER, unit_scope_id=None),
     )
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

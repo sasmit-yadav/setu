@@ -1652,7 +1652,7 @@ Twilio trial verified numbers (cap 5) are those four SIMs plus the trial
 from-number. Trial IVR: the callee must press **any key** for Twilio’s
 trial lady, **then** SETU 1 (safe) / 2 (help).
 
-Officers: `officer.a@setu.example` / `officer.b@setu.example` (Vythiri
+Officers: `vythiri.a@setu.example` / `vythiri.b@setu.example` (Vythiri
 ADM3 **3081**). Password is `SETU_DEMO_PASSWORD` in `.env` (never
 commit the value). Citizen email `citizen@setu.example` is recipient
 **5**, not the SIM on recipient 1.

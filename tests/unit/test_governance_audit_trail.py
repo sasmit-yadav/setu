@@ -70,7 +70,7 @@ async def test_human_approval_appends_alert_approved(db_conn):
     alert_id = await _alert(db_conn, incident_id)
     officer = await db_conn.fetchval("SELECT id FROM app_user LIMIT 1")
 
-    await approve(db_conn, alert_id, officer, reason="looks right", actor="officer.a@setu.example")
+    await approve(db_conn, alert_id, officer, reason="looks right", actor="vythiri.a@setu.example")
 
     assert "alert.approved" in await _audit_types(db_conn, alert_id)
     row = await db_conn.fetchrow(
@@ -80,7 +80,7 @@ async def test_human_approval_appends_alert_approved(db_conn):
         """,
         alert_id,
     )
-    assert row["actor"] == "officer.a@setu.example"
+    assert row["actor"] == "vythiri.a@setu.example"
 
 
 @pytest.mark.integration
@@ -93,8 +93,8 @@ async def test_same_officer_approving_twice_appends_only_one_audit_row(db_conn):
     alert_id = await _alert(db_conn, incident_id)
     officer = await db_conn.fetchval("SELECT id FROM app_user LIMIT 1")
 
-    await approve(db_conn, alert_id, officer, reason="first", actor="officer.a@setu.example")
-    await approve(db_conn, alert_id, officer, reason="again", actor="officer.a@setu.example")
+    await approve(db_conn, alert_id, officer, reason="first", actor="vythiri.a@setu.example")
+    await approve(db_conn, alert_id, officer, reason="again", actor="vythiri.a@setu.example")
 
     approved_events = await db_conn.fetchval(
         """
@@ -123,8 +123,8 @@ async def test_two_distinct_officers_append_two_audit_rows(db_conn):
     if len(officers) < 2:
         pytest.skip("need two app_user rows")
 
-    await approve(db_conn, alert_id, officers[0], actor="officer.a@setu.example")
-    have = await approve(db_conn, alert_id, officers[1], actor="officer.b@setu.example")
+    await approve(db_conn, alert_id, officers[0], actor="vythiri.a@setu.example")
+    have = await approve(db_conn, alert_id, officers[1], actor="vythiri.b@setu.example")
 
     assert have == 2
     actors = [
@@ -137,7 +137,7 @@ async def test_two_distinct_officers_append_two_audit_rows(db_conn):
             alert_id,
         )
     ]
-    assert actors == ["officer.a@setu.example", "officer.b@setu.example"]
+    assert actors == ["vythiri.a@setu.example", "vythiri.b@setu.example"]
 
 
 @pytest.mark.integration
