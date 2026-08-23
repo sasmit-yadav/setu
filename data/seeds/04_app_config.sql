@@ -188,6 +188,7 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('relay.escalate_on_channels_exhausted', 'true', 'bool', '§7.4 — the branch that makes channels_exhausted not the end of the line'),
   ('relay.node_kind_priority', 'panchayat,police,health_worker,school,volunteer,shelter', 'csv',
      'Order relay nodes are tried. Institutional before individual'),
+  ('relay.silence_minutes', '15', 'minutes', 'A phone that was reached but has not replied for this long is a village that may not have heard — the desk suggests a runner, it does not send one'),
   ('relay.confirm_timeout_minutes', '20', 'minutes', 'No DTMF confirmation in this window -> re-call once, then relay.unconfirmed');
 
 -- ═══ B8 Assurance + B10 Peer Relay ═══

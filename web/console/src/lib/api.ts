@@ -407,6 +407,17 @@ export interface Vulnerability {
   recommended_fallback: string;
 }
 
+export interface SilentVillage {
+  unit_id: number;
+  unit_name: string;
+  /** Reached on a real channel, still said nothing. */
+  silent_people: number;
+  quietest_minutes: number;
+  runner_exists: boolean;
+  /** Relay contacts registered for this village - zero means nobody to ring. */
+  contacts: number;
+}
+
 export interface OpsSummary {
   targeted: number;
   delivered: number;
@@ -415,6 +426,8 @@ export interface OpsSummary {
   delivered_note: string;
   acknowledged_note: string;
   at_risk_note: string;
+  silence_minutes: number;
+  silent: SilentVillage[];
 }
 
 export interface OpsFeedItem {

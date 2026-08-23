@@ -386,6 +386,7 @@ export default function App() {
             onOpen={(id) => setView({ name: "alert", id })}
             onCompose={writeRoles ? () => setView({ name: "compose" }) : undefined}
             onUnit={(id) => setView({ name: "unit", id })}
+            onRelay={() => setView({ name: "relay" })}
           />
         )}
         {view.name === "alert" && (

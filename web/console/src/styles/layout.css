@@ -1138,3 +1138,24 @@ html[lang="hi"] .dial__label {
 }
 .chip--toggle.is-on .mono { opacity: 1; color: var(--state-info); }
 .scope__tally { font-size: var(--fs-sm); margin: 0 0 var(--s3); font-variant-numeric: tabular-nums; }
+
+/* Reached-but-silent prompt. Amber, not red: this is the desk noticing
+ * something, not an alarm — and it deliberately stops at a suggestion. */
+.silence {
+  border-left: 3px solid var(--state-warning);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.silence__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.silence__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
+  gap: var(--s3);
+  align-items: center;
+}
+.silence__lead { font-weight: 600; font-variant-numeric: tabular-nums; }
+.silence__state { font-size: var(--fs-sm); }
+@media (max-width: 720px) {
+  .silence__row { grid-template-columns: 1fr; }
+}

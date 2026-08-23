@@ -233,6 +233,59 @@ async def ops_summary(
         reach_floor,
         ack_floor,
     )
+    # A phone the provider accepted is not a person who heard. Anyone reached on
+    # a real channel who has still said nothing after the silence window is the
+    # Wayanad case: the warning left the office and nobody knows if it landed.
+    # Reported per village so the desk can suggest a runner - it never sends one.
+    silence_minutes = await config_repo.get_int(conn, "relay.silence_minutes")
+    silent = await conn.fetch(
+        """
+        WITH reached AS (
+            SELECT r.unit_id, d.recipient_id, a.id AS alert_id,
+                   max(COALESCE(d.sent_at, d.queued_at)) AS last_try
+            FROM delivery d
+            JOIN channel c ON c.id = d.channel_id
+            JOIN recipient r ON r.id = d.recipient_id
+            JOIN alert a ON a.id = d.alert_id
+            WHERE a.lifecycle_status = 'active'
+              AND NOT d.simulated
+              AND c.code = ANY (ARRAY['sms', 'ivr', 'fcm', 'email'])
+              AND d.state IN ('sent', 'delivered', 'acknowledged')
+            GROUP BY r.unit_id, d.recipient_id, a.id
+        )
+        SELECT reached.unit_id,
+               u.name AS unit_name,
+               count(*)::int AS silent_people,
+               floor(
+                 extract(epoch FROM (now() - min(reached.last_try))) / 60
+               )::int AS quietest_minutes,
+               EXISTS (
+                 SELECT 1 FROM delivery hr
+                 JOIN channel hc ON hc.id = hr.channel_id
+                 JOIN recipient hrr ON hrr.id = hr.recipient_id
+                 WHERE hc.code = 'human_relay'
+                   AND hrr.unit_id = reached.unit_id
+                   AND hr.alert_id = reached.alert_id
+               ) AS runner_exists,
+               (SELECT count(*)::int FROM relay_node rn
+                 WHERE rn.unit_id = reached.unit_id AND rn.active) AS contacts
+        FROM reached
+        JOIN admin_unit u ON u.id = reached.unit_id
+        WHERE NOT EXISTS (
+                -- citizen_response keys on the delivery, not the person, so a
+                -- reply on any channel counts as this recipient having answered.
+                SELECT 1
+                FROM citizen_response cr
+                JOIN delivery cd ON cd.id = cr.delivery_id
+                WHERE cr.alert_id = reached.alert_id
+                  AND cd.recipient_id = reached.recipient_id
+              )
+          AND reached.last_try < now() - make_interval(mins => $1)
+        GROUP BY reached.unit_id, u.name, reached.alert_id
+        ORDER BY silent_people DESC
+        """,
+        silence_minutes,
+    )
     return {
         "targeted": int(row["targeted"] or 0),
         "delivered": int(row["delivered"] or 0),
@@ -240,7 +293,21 @@ async def ops_summary(
         "at_risk": int(row["at_risk"] or 0),
         "delivered_note": "real phones and apps only",
         "acknowledged_note": "someone replied on a real channel",
-        "at_risk_note": "village under the live warning, no runner",
+        # Was "no runner", which reads as "no runner has been sent". It counts
+        # villages with nobody registered to send - a preparedness gap.
+        "at_risk_note": "village under the live warning with no relay contact registered",
+        "silence_minutes": silence_minutes,
+        "silent": [
+            {
+                "unit_id": r["unit_id"],
+                "unit_name": r["unit_name"],
+                "silent_people": r["silent_people"],
+                "quietest_minutes": r["quietest_minutes"],
+                "runner_exists": r["runner_exists"],
+                "contacts": r["contacts"],
+            }
+            for r in silent
+        ],
     }
 
 

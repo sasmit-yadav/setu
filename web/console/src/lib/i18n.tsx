@@ -50,6 +50,13 @@ const EN: Record<string, string> = {
   "relayKind.school": "School",
   "relayKind.volunteer": "Registered volunteer",
   "relayKind.shelter": "Shelter",
+  "silence.title": "Reached but silent",
+  "silence.kicker": "Reached, but nobody has answered",
+  "silence.line": "{people} reached in {unit} — no reply for {minutes} min",
+  "silence.suggest": "{contacts} contacts registered. Consider a runner.",
+  "silence.runnerOpen": "A runner is already waiting. {contacts} contacts registered.",
+  "silence.noContacts": "No relay contact registered for this village.",
+  "silence.goRunner": "Send a runner",
   "nav.groupNow": "During an emergency",
   "nav.groupAlso": "Also on this desk",
 

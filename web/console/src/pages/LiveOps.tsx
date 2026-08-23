@@ -24,10 +24,13 @@ export function LiveOps({
   onOpen,
   onCompose,
   onUnit,
+  onRelay,
 }: {
   onOpen: (id: number) => void;
   onCompose?: () => void;
   onUnit: (id: number) => void;
+  /** Jump to the runner desk. The prompt suggests; it never sends. */
+  onRelay?: () => void;
 }) {
   const { t } = useT();
   const [alerts, setAlerts] = useState<AlertSummary[]>([]);
@@ -278,6 +281,41 @@ export function LiveOps({
         </p>
       )}
       {error && <p className="danger" role="alert">{error}</p>}
+
+      {/* A provider accepting a message is not a person hearing it. Anyone
+        * reached who has still said nothing after the silence window is the
+        * Wayanad case, so the desk says so and points at the runner queue.
+        * It stops there on purpose: spending a human is an officer's call. */}
+      {(summary?.silent?.length ?? 0) > 0 && (
+        <section className="silence panel" role="status" aria-label={t("silence.title")}>
+          <p className="screen__kicker">{t("silence.kicker")}</p>
+          <ul className="silence__list">
+            {summary?.silent?.map((v) => (
+              <li key={v.unit_id} className="silence__row">
+                <span className="silence__lead">
+                  {t("silence.line", {
+                    people: v.silent_people,
+                    unit: v.unit_name,
+                    minutes: v.quietest_minutes,
+                  })}
+                </span>
+                <span className="muted silence__state">
+                  {v.contacts === 0
+                    ? t("silence.noContacts")
+                    : v.runner_exists
+                      ? t("silence.runnerOpen", { contacts: v.contacts })
+                      : t("silence.suggest", { contacts: v.contacts })}
+                </span>
+                {onRelay && v.contacts > 0 && (
+                  <button type="button" className="btn btn--ghost" onClick={onRelay}>
+                    {t("silence.goRunner")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="live-split">
         <div className="live-map-wrap">
