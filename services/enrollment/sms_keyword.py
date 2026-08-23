@@ -8,7 +8,11 @@ from redis.asyncio import Redis
 from services.api import config_repo
 from services.api.settings import settings
 from services.audit.ledger import append_audit
-from services.enrollment.phone_hash import normalize_phone_e164, phone_hash
+from services.enrollment.phone_hash import (
+    PhoneNumberError,
+    normalize_phone_e164,
+    phone_hash,
+)
 from services.response.citizen_response import ResponseError, submit_response
 
 
@@ -64,7 +68,12 @@ async def handle_inbound(
     register_kw = (await config_repo.get_str(conn, "enrollment.sms_keyword_register")).upper()
     stop_kw = (await config_repo.get_str(conn, "enrollment.sms_keyword_stop")).upper()
     token = body.strip().upper()
-    phone_e164 = await normalize_phone_e164(conn, from_number)
+    try:
+        phone_e164 = await normalize_phone_e164(conn, from_number)
+    except PhoneNumberError as exc:
+        # Twilio sends E.164, so this is a spoofed or malformed callback rather
+        # than a real handset. Refuse it as bad input; never a 500 on a webhook.
+        raise SmsKeywordError("invalid_sender", str(exc)) from exc
     digest = phone_hash(phone_e164)
     if token == stop_kw:
         reply = await config_repo.get_str(conn, "enrollment.sms_auto_reply_stopped")

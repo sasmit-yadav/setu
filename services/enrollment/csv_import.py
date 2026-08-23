@@ -11,7 +11,11 @@ import asyncpg
 from services.api import config_repo
 from services.api.settings import settings
 from services.audit.ledger import append_audit
-from services.enrollment.phone_hash import normalize_phone_e164, phone_hash
+from services.enrollment.phone_hash import (
+    PhoneNumberError,
+    normalize_phone_e164,
+    phone_hash,
+)
 
 
 class CsvImportError(Exception):
@@ -99,7 +103,12 @@ async def import_csv(
             rejected += 1
             results.append(ImportRowResult(row_number, "rejected", "unit_not_found"))
             continue
-        phone_e164 = await normalize_phone_e164(conn, phone_raw)
+        try:
+            phone_e164 = await normalize_phone_e164(conn, phone_raw)
+        except PhoneNumberError as exc:
+            rejected += 1
+            results.append(ImportRowResult(row_number, "rejected", str(exc)))
+            continue
         digest = phone_hash(phone_e164)
         existing = await conn.fetchval(
             "SELECT id FROM recipient WHERE phone_hash = $1",

@@ -21,7 +21,11 @@ import asyncpg
 from services.api import config_repo
 from services.api.auth import AuthError, Principal, hash_token
 from services.api.settings import settings
-from services.enrollment.phone_hash import normalize_phone_e164, phone_hash
+from services.enrollment.phone_hash import (
+    PhoneNumberError,
+    normalize_phone_e164,
+    phone_hash,
+)
 
 log = logging.getLogger(__name__)
 
@@ -56,13 +60,23 @@ def _twilio_ready() -> bool:
 
 
 async def _same_number(conn: asyncpg.Connection, left: str, right: str) -> bool:
-    a = await normalize_phone_e164(conn, left)
-    b = await normalize_phone_e164(conn, right)
+    try:
+        a = await normalize_phone_e164(conn, left)
+        b = await normalize_phone_e164(conn, right)
+    except PhoneNumberError:
+        # Two values that cannot be numbers are not "the same number".
+        return False
     return a == b
 
 
 async def request_otp(conn: asyncpg.Connection, phone_raw: str) -> None:
-    e164 = await normalize_phone_e164(conn, phone_raw)
+    # A typo in the number is a rejected sign-in, not a server error. Same
+    # AuthError as a wrong code, so the response cannot be used to tell a
+    # malformed number apart from an unregistered one.
+    try:
+        e164 = await normalize_phone_e164(conn, phone_raw)
+    except PhoneNumberError as exc:
+        raise AuthError() from exc
     digest = phone_hash(e164)
     ttl = await config_repo.get_int(conn, "auth.citizen_otp_ttl_seconds")
     resend = await config_repo.get_int(conn, "auth.citizen_otp_resend_seconds")
@@ -129,7 +143,10 @@ async def _send_otp_sms(e164: str, code: str) -> None:
 
 
 async def verify_otp(conn: asyncpg.Connection, phone_raw: str, code_raw: str) -> Principal:
-    e164 = await normalize_phone_e164(conn, phone_raw)
+    try:
+        e164 = await normalize_phone_e164(conn, phone_raw)
+    except PhoneNumberError as exc:
+        raise AuthError() from exc
     digest = phone_hash(e164)
     offered = "".join(ch for ch in code_raw.strip() if ch.isdigit())
     max_tries = await config_repo.get_int(conn, "auth.citizen_otp_max_attempts")
