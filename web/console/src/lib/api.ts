@@ -463,6 +463,10 @@ export interface RelayTask {
   unit_name: string;
   headline: string;
   severity: string;
+  /** Who to actually ring. Null when the village has no active relay node,
+   *  which is itself the thing the officer needs to know. */
+  contact_name: string | null;
+  contact_kind: string | null;
 }
 
 export const endpoints = {

@@ -54,6 +54,7 @@ export function RelayTasks() {
       <section className="panel table" aria-label={t("relay.title")}>
         <div className="table__head relay__head" role="row">
           <span>{t("relay.colUnit")}</span>
+          <span>{t("relay.colWho")}</span>
           <span>{t("relay.colSeverity")}</span>
           <span>{t("relay.colHeadline")}</span>
           <span>{t("relay.colState")}</span>
@@ -66,6 +67,20 @@ export function RelayTasks() {
         {rows.map((row) => (
           <div key={row.id} className="table__row relay__row" role="row">
             <span>{row.unit_name}</span>
+            <span className="relay__who">
+              {row.contact_name ? (
+                <>
+                  <span>{row.contact_name}</span>
+                  {row.contact_kind ? (
+                    <span className="muted relay__kind">
+                      {lookup(t, "relayKind", row.contact_kind)}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="danger">{t("relay.noContact")}</span>
+              )}
+            </span>
             <SeverityBadge severity={row.severity} />
             <span className="table__headline">{row.headline}</span>
             <span>{lookup(t, "state", row.state)}</span>

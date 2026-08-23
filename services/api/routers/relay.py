@@ -16,7 +16,10 @@ from services.api.rbac import (
 from services.audit.ledger import append_audit
 from services.crypto.alert_signing import verify_payload
 from services.delivery.assurance import record
-from services.delivery.channels.human_relay import confirm_relay_delivery
+from services.delivery.channels.human_relay import (
+    confirm_relay_delivery,
+    find_relay_node,
+)
 from services.ml.translate import lang_for_unit, resolve_alert_text
 
 router = APIRouter(prefix="/api/v1/relay", tags=["relay"])
@@ -116,6 +119,14 @@ async def list_relay_tasks(
     for row in rows:
         lang = await lang_for_unit(conn, int(row["unit_id"]))
         resolved = await resolve_alert_text(conn, int(row["alert_id"]), lang)
+        # Name the person this task is actually for. The desk was showing the
+        # village and the warning but not who to ring, which leaves the officer
+        # holding a task with no addressee. Resolved through the same
+        # find_relay_node the dispatcher uses, so the screen and the call agree
+        # on who was chosen — including the kind priority that picked them.
+        # The number itself stays out: a relay volunteer's line is not something
+        # every operational-read role needs on screen.
+        node = await find_relay_node(conn, int(row["unit_id"]))
         out.append(
             {
                 "id": row["id"],
@@ -123,6 +134,8 @@ async def list_relay_tasks(
                 "state": row["state"],
                 "unit_id": row["unit_id"],
                 "unit_name": row["unit_name"],
+                "contact_name": node["name"] if node else None,
+                "contact_kind": node["kind"] if node else None,
                 "headline": resolved.headline,
                 "body": resolved.body,
                 "lang": resolved.lang,
