@@ -1169,3 +1169,9 @@ html[lang="hi"] .dial__label {
   font-variant-numeric: tabular-nums;
 }
 .relay__phone:hover { text-decoration: underline; }
+
+/* Sound the siren sits beside Send but must not read as the same weight of
+ * action: Send reaches phones, this wakes a village whether or not anyone in
+ * it has one. Amber outline, never the danger fill Send uses. */
+.siren-btn { border-color: var(--state-warning); color: var(--state-warning); }
+.siren-btn:hover:not(:disabled) { background: var(--sev-severe-bg); }

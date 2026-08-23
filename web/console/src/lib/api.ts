@@ -548,6 +548,10 @@ export const endpoints = {
   afterAction: (id: number) => api.get<AfterAction>(`/api/v1/incidents/${id}/after-action`),
   closeIncident: (id: number) => api.post<Record<string, unknown>>(`/api/v1/incidents/${id}/close`),
   models: () => api.get<Array<Record<string, unknown>>>("/api/v1/models"),
+  soundSiren: (id: number) =>
+    api.post<{ alert_id: number; sirens: number; delivery_ids: number[]; already_sounded: boolean }>(
+      `/api/v1/alerts/${id}/siren`,
+    ),
   relayTasks: () => api.get<RelayTask[]>("/api/v1/relay/tasks"),
   confirmRelayTask: (id: number) => api.post<Record<string, unknown>>(`/api/v1/relay/tasks/${id}/confirm`),
   leadTime: () => api.get<LeadTime>("/api/v1/analytics/lead-time"),

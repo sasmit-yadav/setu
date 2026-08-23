@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Send } from "lucide-react";
+import { ArrowLeft, Send, Siren } from "lucide-react";
 import {
   ApiError,
   endpoints,
@@ -42,7 +42,13 @@ export function AlertDetail({
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
   const [approvals, setApprovals] = useState<{ have: number; need: number } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
+  // "warn" is for an action that was correctly refused rather than failed:
+  // pressing Sound the siren twice is not an error, and colouring it red
+  // would tell the officer something went wrong when nothing did.
+  const [notice, setNotice] = useState<{
+    tone: "ok" | "warn" | "danger";
+    text: string;
+  } | null>(null);
   const [selfApproved, setSelfApproved] = useState(false);
   const [changeReason, setChangeReason] = useState("");
   const [nextSeverity, setNextSeverity] = useState("");
@@ -87,6 +93,37 @@ export function AlertDetail({
       setNotice(null);
     } catch {
       setNotice({ tone: "danger", text: t("approval.fail") });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function soundSiren() {
+    // Two steps on purpose. Every other button here sends to phones; this one
+    // wakes a village whether or not anyone in it owns a phone, so it asks once.
+    if (!window.confirm(t("siren.confirm"))) return;
+    setBusy("siren");
+    setNotice(null);
+    try {
+      const res = await endpoints.soundSiren(id);
+      setNotice({
+        tone: res.already_sounded ? "warn" : "ok",
+        text: res.already_sounded
+          ? t("siren.already", { n: res.sirens })
+          : t("siren.done", { n: res.sirens }),
+      });
+      await refresh();
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : undefined;
+      setNotice({
+        tone: "danger",
+        text:
+          code === "no_siren_registered_in_area"
+            ? t("siren.none")
+            : code === "alert_not_active"
+              ? t("siren.notLive")
+              : t("siren.fail"),
+      });
     } finally {
       setBusy(null);
     }
@@ -292,6 +329,20 @@ export function AlertDetail({
               <Send size={14} aria-hidden />
               {busy === "dispatch" ? t("alert.sending") : t("alert.send")}
             </button>
+            {alert.lifecycle_status === "active" && (
+              <button
+                className="btn btn--ghost siren-btn"
+                onClick={() => void soundSiren()}
+                disabled={busy !== null}
+                title={t("siren.hint")}
+              >
+                <Siren size={14} aria-hidden />
+                {busy === "siren" ? t("siren.sounding") : t("siren.button")}
+              </button>
+            )}
+            {alert.lifecycle_status === "active" && (
+              <p className="muted detail__why">{t("siren.hint")}</p>
+            )}
             {gateBlocks && (
               <p className="danger detail__why">{t("gate.blockedDispatch")}</p>
             )}
@@ -301,7 +352,16 @@ export function AlertDetail({
               </p>
             )}
             {notice && (
-              <p className={notice.tone === "ok" ? "ok detail__why" : "danger detail__why"} role="status">
+              <p
+                className={
+                  notice.tone === "ok"
+                    ? "ok detail__why"
+                    : notice.tone === "warn"
+                      ? "warn detail__why"
+                      : "danger detail__why"
+                }
+                role="status"
+              >
                 {notice.text}
               </p>
             )}
