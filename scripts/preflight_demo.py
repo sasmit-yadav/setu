@@ -298,21 +298,36 @@ async def check_redis(env: dict[str, str]) -> None:
     try:
         await redis.ping()
         record(PASS, "Upstash reachable")
+        # redis-py's xinfo_groups() assumes a map reply and raises AttributeError
+        # against Upstash, which answers with a flat list. That looked exactly
+        # like "no consumer group" and reported a running worker as absent, so
+        # issue the raw command and pair the fields ourselves.
+        groups: list[dict[str, object]] = []
         try:
-            groups = await redis.xinfo_groups(keys.stream_delivery())
-        except Exception:
-            groups = []
+            raw = await redis.execute_command("XINFO", "GROUPS", keys.stream_delivery())
+            for entry in raw or []:
+                if isinstance(entry, dict):
+                    groups.append(entry)
+                elif isinstance(entry, (list, tuple)):
+                    pairs = list(entry)
+                    groups.append(dict(zip(pairs[::2], pairs[1::2], strict=False)))
+        except Exception as exc:
+            record(WARN, "worker consumer group", f"could not read: {exc!r}")
         if not groups:
             record(WARN, "worker consumer group", "not created yet - appears on first dispatch")
         for group in groups:
-            consumers = int(group.get("consumers", 0))
-            pending = int(group.get("pending", 0))
-            record(
-                PASS if consumers else FAIL,
-                "worker consuming",
-                f"{consumers} consumer(s), {pending} pending"
-                + ("" if consumers else " - start run.py worker-cloud"),
-            )
+            consumers = int(group.get("consumers", 0) or 0)
+            pending = int(group.get("pending", 0) or 0)
+            detail = f"{consumers} consumer(s), {pending} pending"
+            if not consumers:
+                detail += " - start run.py worker-cloud"
+            record(PASS if consumers else FAIL, "worker consuming", detail)
+            if pending:
+                record(
+                    WARN,
+                    "unacked messages on the stream",
+                    f"{pending} - a past dispatch was never acked; harmless but not clean",
+                )
     except Exception as exc:
         record(FAIL, "Upstash reachable", repr(exc))
     finally:
