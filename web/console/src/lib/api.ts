@@ -480,6 +480,8 @@ export interface RelayTask {
    *  which is itself the thing the officer needs to know. */
   contact_name: string | null;
   contact_kind: string | null;
+  /** Only sent to roles that place the call. Null for auditor and relay_node. */
+  contact_phone: string | null;
 }
 
 export const endpoints = {

@@ -76,6 +76,11 @@ export function RelayTasks() {
                       {lookup(t, "relayKind", row.contact_kind)}
                     </span>
                   ) : null}
+                  {row.contact_phone ? (
+                    <a className="relay__phone mono" href={`tel:${row.contact_phone}`}>
+                      {row.contact_phone}
+                    </a>
+                  ) : null}
                 </>
               ) : (
                 <span className="danger">{t("relay.noContact")}</span>

@@ -187,6 +187,60 @@ async def is_held_for_later(
     return float(score) > cutoff
 
 
+async def _hold_extreme_channels(
+    conn: asyncpg.Connection, redis: Redis, alert_id: int
+) -> dict[int, float]:
+    """Space an Extreme fan-out without turning it into an escalation.
+
+    Extreme still sends on every channel and never waits for one to fail. What
+    it should not do is ring the handset while the SMS is still arriving - the
+    person then reads neither. So each channel carries its own absolute delay
+    from dispatch rather than a cumulative chain: push and SMS land together,
+    the voice call follows once there has been a moment to look at the screen.
+
+    Absolute rather than cumulative on purpose. A chain means changing one
+    channel silently moves every channel after it, which is how a ten-second
+    gap becomes twenty without anyone editing that number.
+
+    Config is a CSV of channel:seconds. An unlisted channel, or a whole missing
+    key, means no delay - the original simultaneous behaviour.
+    """
+    try:
+        raw = await config_repo.get_csv(conn, "delivery.extreme_channel_delay_s")
+    except KeyError:
+        return {}
+    delay_by_code: dict[str, float] = {}
+    for item in raw:
+        code, _, value = str(item).partition(":")
+        code = code.strip()
+        try:
+            seconds = float(value.strip())
+        except ValueError:
+            continue
+        if code and seconds > 0:
+            delay_by_code[code] = seconds
+    if not delay_by_code:
+        return {}
+
+    pending = await conn.fetch(
+        """
+        SELECT d.id, c.code
+        FROM delivery d
+        JOIN channel c ON c.id = d.channel_id
+        WHERE d.alert_id = $1 AND d.state = 'pending' AND d.attempt = 1
+          AND c.code = ANY($2::text[])
+        """,
+        alert_id,
+        list(delay_by_code),
+    )
+    held: dict[int, float] = {}
+    for row in pending:
+        delay = delay_by_code[str(row["code"])]
+        await schedule_retry(redis, int(row["id"]), delay)
+        held[int(row["id"])] = delay
+    return held
+
+
 async def hold_staggered_channels(
     conn: asyncpg.Connection, redis: Redis, alert_id: int
 ) -> dict[int, float]:
@@ -201,20 +255,9 @@ async def hold_staggered_channels(
     Returns {delivery_id: delay_s} for the held rows.
     """
     severity = str(await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id))
-    # Extreme still fans out to every channel - the point of Extreme is that it
-    # does not wait for one to fail. But firing them in the same instant means
-    # the handset rings while the SMS is still arriving, and the person reads
-    # neither. A small fixed gap keeps the fan-out and orders it: message first,
-    # then the call. Zero keeps the original simultaneous behaviour.
-    extreme_gap = 0
     if severity == "extreme":
-        try:
-            extreme_gap = await config_repo.get_int(conn, "delivery.extreme_channel_gap_s")
-        except KeyError:
-            extreme_gap = 0
-        if extreme_gap <= 0:
-            return {}
-    elif severity != "severe":
+        return await _hold_extreme_channels(conn, redis, alert_id)
+    if severity != "severe":
         return {}
     policy_rows = await conn.fetch(
         """
@@ -225,8 +268,7 @@ async def hold_staggered_channels(
         str(severity),
     )
     wait_by_channel = {
-        int(row["channel_id"]): (extreme_gap or int(row["wait_before_next_s"]))
-        for row in policy_rows
+        int(row["channel_id"]): int(row["wait_before_next_s"]) for row in policy_rows
     }
     order_by_channel = {int(row["channel_id"]): int(row["step_order"]) for row in policy_rows}
     unknown_order = 0
