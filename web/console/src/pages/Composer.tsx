@@ -58,7 +58,19 @@ export function Composer({
           (row) => row.source_id === "usgs" || row.source_id === "gdacs",
         ),
       );
-      setOwnRecent(nextAlerts.filter((row) => row.source_id === "manual").slice(0, 6));
+      // Withdrawn warnings are not "your recent warnings" — the officer already
+      // took them back, and leaving them listed here invites re-opening one that
+      // is no longer live. Same exclusion LiveOps applies to the live list.
+      setOwnRecent(
+        nextAlerts
+          .filter(
+            (row) =>
+              row.source_id === "manual" &&
+              row.lifecycle_status !== "cancelled" &&
+              row.lifecycle_status !== "superseded",
+          )
+          .slice(0, 6),
+      );
     })();
   }, []);
 

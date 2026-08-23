@@ -668,12 +668,35 @@ button.chip {
 }
 .relay__head,
 .relay__row {
-  grid-template-columns: minmax(9rem, 1fr) minmax(11rem, 1.2fr) 108px minmax(12rem, 1.4fr) 90px auto;
-  --table-min: 58rem;
+  /* "Who to ring" is wider than the other text columns because it now carries
+     several contacts, each with a name and a dialable number. */
+  grid-template-columns: minmax(9rem, 1fr) minmax(15rem, 1.8fr) 108px minmax(12rem, 1.4fr) 90px auto;
+  --table-min: 64rem;
 }
 /* Who to ring, and what they are to the village, stacked so the name leads. */
-.relay__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.relay__who { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
 .relay__who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* One contact per block, and the NAME GETS ITS OWN LINE. Sharing a line with
+   the kind and the number squeezed it to "Mu..." / "Communit...", which is
+   useless on a screen whose entire job is telling an officer who to ring. The
+   kind and number then sit together underneath. */
+.relay__contact {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--s2);
+  row-gap: 0;
+  align-items: baseline;
+  min-width: 0;
+  /* beat the nowrap/overflow the generic .relay__who > span rule sets */
+  white-space: normal;
+  overflow: visible;
+}
+.relay__contact > span:first-child {
+  flex: 1 0 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .relay__kind { font-size: var(--fs-xs); }
 .table__row.is-selected { background: var(--bg-raised); }
 .board__ribbon { margin: 0; font-size: var(--fs-sm); }

@@ -57,5 +57,11 @@ BEGIN
     (palghar_unit, 'school',        'ZP School Talasari (demo contact)',
        pgp_sym_encrypt('+91PLACEHOLDER5', 'CHANGE-ME'), decode('04', 'hex'), true),
     (palghar_unit, 'volunteer',     'Registered volunteer -- Talasari (demo)',
-       pgp_sym_encrypt('+91PLACEHOLDER6', 'CHANGE-ME'), decode('05', 'hex'), true);
+       pgp_sym_encrypt('+91PLACEHOLDER6', 'CHANGE-ME'), decode('05', 'hex'), true),
+    -- Muttil's own station, distinct from the Meppadi row above: Meppadi is a
+    -- different settlement that happens to fall inside the same ADM5 polygon
+    -- (see the SPEC CORRECTION note at the top), so "the police station for
+    -- this village" was not actually in the list.
+    (wayanad_unit, 'police',        'Muttil Police Station',
+       pgp_sym_encrypt('+91PLACEHOLDER7', 'CHANGE-ME'), decode('06', 'hex'), true);
 END $$;

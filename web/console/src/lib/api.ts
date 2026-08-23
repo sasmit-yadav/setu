@@ -482,6 +482,15 @@ export interface RelayTask {
   contact_kind: string | null;
   /** Only sent to roles that place the call. Null for auditor and relay_node. */
   contact_phone: string | null;
+  /** Every active contact for the village, dispatcher-priority order. The first
+   *  entry is the same node as contact_name. Ringing one person is rarely what
+   *  an unreachable village actually needs. */
+  contacts?: Array<{
+    id: number;
+    kind: string;
+    name: string;
+    phone: string | null;
+  }>;
 }
 
 export const endpoints = {

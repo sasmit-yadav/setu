@@ -28,6 +28,65 @@ from services.ml.translate import lang_for_unit, resolve_alert_text
 router = APIRouter(prefix="/api/v1/relay", tags=["relay"])
 
 
+async def _unit_contacts(
+    conn: asyncpg.Connection, unit_id: int, may_dial: bool
+) -> list[dict]:
+    """Every active relay contact for a unit, in the order the dispatcher ranks them.
+
+    Same ordering as find_relay_node (relay.node_kind_priority, then distance up
+    the admin tree) so the head of this list is always the node that would
+    actually be called — the screen and the dispatcher cannot disagree.
+
+    Numbers follow the same rule as the single contact: officers and state admins
+    can dial, an auditor or a relay contact reading the queue cannot see other
+    people's lines.
+    """
+    kinds = await config_repo.get_csv(conn, "relay.node_kind_priority")
+    rows = await conn.fetch(
+        """
+        WITH RECURSIVE chain AS (
+            SELECT id, parent_id, 0 AS depth FROM admin_unit WHERE id = $1
+            UNION ALL
+            SELECT u.id, u.parent_id, chain.depth + 1
+            FROM admin_unit u
+            JOIN chain ON u.id = chain.parent_id
+        )
+        SELECT rn.id, rn.kind, rn.name, rn.phone_enc
+        FROM relay_node rn
+        JOIN chain c ON c.id = rn.unit_id
+        WHERE rn.active
+        ORDER BY array_position($2::text[], rn.kind), c.depth, rn.id
+        """,
+        unit_id,
+        kinds,
+    )
+    out: list[dict] = []
+    for row in rows:
+        phone = None
+        if may_dial and row["phone_enc"] and settings.pgcrypto_sym_key:
+            try:
+                raw = await conn.fetchval(
+                    "SELECT pgp_sym_decrypt($1, $2)",
+                    row["phone_enc"],
+                    settings.pgcrypto_sym_key,
+                )
+            except asyncpg.PostgresError:
+                # Sealed with a different key — show the name without a number
+                # rather than failing the queue, same as the single-contact path.
+                raw = None
+            if raw:
+                phone = raw.decode() if isinstance(raw, bytes) else str(raw)
+        out.append(
+            {
+                "id": int(row["id"]),
+                "kind": row["kind"],
+                "name": row["name"],
+                "phone": phone,
+            }
+        )
+    return out
+
+
 class PeerReceiptRequest(BaseModel):
     delivery_id: int
     alert_id: int
@@ -166,6 +225,14 @@ async def list_relay_tasks(
                 "contact_name": node["name"] if node else None,
                 "contact_kind": node["kind"] if node else None,
                 "contact_phone": contact_phone,
+                # find_relay_node returns the ONE node the dispatcher would pick,
+                # which left the desk naming a single contact — while the spoken
+                # pitch promises "panchayat, police, ASHA". A runner task is not
+                # one phone call: if a village is unreachable you ring everyone
+                # who can walk there. So the whole ordered list travels too, and
+                # contact_* above stays as the head of it for anything already
+                # reading those fields.
+                "contacts": await _unit_contacts(conn, int(row["unit_id"]), may_dial),
                 "headline": resolved.headline,
                 "body": resolved.body,
                 "lang": resolved.lang,

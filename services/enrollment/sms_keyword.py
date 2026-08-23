@@ -99,7 +99,12 @@ async def handle_inbound(
     if ack is not None:
         return ack
     if token != register_kw:
-        hint = await config_repo.get(conn, "response.sms_reply.hint")
+        # The one message whose whole job is telling someone how to answer, so
+        # it above all must be in a language they read.
+        lang = await conn.fetchval(
+            "SELECT preferred_lang FROM recipient WHERE phone_hash = $1", digest
+        )
+        hint = await config_repo.get_localised(conn, "response.sms_reply.hint", lang)
         return SmsKeywordResult("unknown", hint or "SETU: Reply SAFE or HELP.")
     reply = await config_repo.get_str(conn, "enrollment.sms_auto_reply_registered")
     existing = await conn.fetchrow(
@@ -152,11 +157,29 @@ async def handle_inbound(
 async def _try_alert_ack(
     conn: asyncpg.Connection, digest: str, token: str
 ) -> SmsKeywordResult | None:
-    """SAFE / HELP on the latest live warning for this number."""
+    """SAFE / HELP — or 1 / 2 — on the latest live warning for this number.
+
+    The digits are the primary path and the words are kept as aliases, not the
+    other way round. A feature phone in Muttil often has no Malayalam keyboard
+    at all, and typing "SAFE" assumes English literacy from exactly the person
+    this system exists to reach. A digit assumes neither, and it matches the
+    IVR's DTMF 1/2 so a resident learns one answer for both channels.
+
+    The words still work because somebody will already have been told to reply
+    SAFE, and silently dropping a path that used to work is its own failure.
+    """
     safe_kw = (await config_repo.get(conn, "response.sms_keyword.safe") or "SAFE").upper()
     help_kw = (await config_repo.get(conn, "response.sms_keyword.help") or "HELP").upper()
-    if token not in {safe_kw, help_kw}:
+    safe_digit = (await config_repo.get(conn, "response.sms_digit.safe") or "").strip()
+    help_digit = (await config_repo.get(conn, "response.sms_digit.help") or "").strip()
+    safe_tokens = {safe_kw} | ({safe_digit} if safe_digit else set())
+    help_tokens = {help_kw} | ({help_digit} if help_digit else set())
+    if token not in safe_tokens | help_tokens:
         return None
+    # The reply this person can read, not the one the server happens to hold.
+    lang = await conn.fetchval(
+        "SELECT preferred_lang FROM recipient WHERE phone_hash = $1", digest
+    )
     row = await conn.fetchrow(
         """
         SELECT d.id
@@ -172,29 +195,35 @@ async def _try_alert_ack(
         digest,
     )
     if row is None:
-        reply = await config_repo.get(conn, "response.sms_reply.no_alert")
+        reply = await config_repo.get_localised(
+            conn, "response.sms_reply.no_alert", lang
+        )
         return SmsKeywordResult(
             "no_alert",
             reply or "SETU: No live warning for this number.",
         )
     try:
-        if token == safe_kw:
+        if token in safe_tokens:
             await submit_response(
                 conn,
                 delivery_id=int(row["id"]),
                 response_type="safe",
                 idempotency_key=f"sms-safe-{row['id']}",
             )
-            reply = await config_repo.get(conn, "response.sms_reply.safe")
+            reply = await config_repo.get_localised(
+                conn, "response.sms_reply.safe", lang
+            )
             return SmsKeywordResult("safe", reply or "SETU: Marked safe. Thank you.")
         await submit_response(
             conn,
             delivery_id=int(row["id"]),
             response_type="other",
             idempotency_key=f"sms-help-{row['id']}",
-            free_text="SMS: HELP",
+            # Records WHICH token the person actually sent, so the desk can see
+            # whether digits or words are what people really use.
+            free_text=f"SMS: {token}",
         )
-        reply = await config_repo.get(conn, "response.sms_reply.help")
+        reply = await config_repo.get_localised(conn, "response.sms_reply.help", lang)
         return SmsKeywordResult("help", reply or "SETU: Help request received.")
     except ResponseError as exc:
         raise SmsKeywordError(exc.code, exc.message) from exc

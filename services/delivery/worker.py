@@ -121,6 +121,7 @@ async def build_message(conn: asyncpg.Connection, delivery_id: int) -> OutboundM
         address=address,
         headline=headline,
         body=resolved.body,
+        lang=resolved.lang,
         ack_url=f"{settings.public_base_url}/api/v1/ack",
         receipt_nonce=str(uuid.uuid4()),
         signature=signature,

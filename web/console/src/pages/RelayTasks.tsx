@@ -68,23 +68,40 @@ export function RelayTasks() {
           <div key={row.id} className="table__row relay__row" role="row">
             <span>{row.unit_name}</span>
             <span className="relay__who">
-              {row.contact_name ? (
-                <>
-                  <span>{row.contact_name}</span>
-                  {row.contact_kind ? (
+              {/* Every contact who can walk to the village, not just the one the
+                  dispatcher would ring first. contacts[] arrives in dispatcher
+                  priority order; fall back to the single contact_* fields if an
+                  older API build did not send the list. */}
+              {(row.contacts?.length
+                ? row.contacts
+                : row.contact_name
+                  ? [
+                      {
+                        id: -1,
+                        kind: row.contact_kind ?? "",
+                        name: row.contact_name,
+                        phone: row.contact_phone,
+                      },
+                    ]
+                  : []
+              ).map((contact) => (
+                <span key={contact.id} className="relay__contact">
+                  <span>{contact.name}</span>
+                  {contact.kind ? (
                     <span className="muted relay__kind">
-                      {lookup(t, "relayKind", row.contact_kind)}
+                      {lookup(t, "relayKind", contact.kind)}
                     </span>
                   ) : null}
-                  {row.contact_phone ? (
-                    <a className="relay__phone mono" href={`tel:${row.contact_phone}`}>
-                      {row.contact_phone}
+                  {contact.phone ? (
+                    <a className="relay__phone mono" href={`tel:${contact.phone}`}>
+                      {contact.phone}
                     </a>
                   ) : null}
-                </>
-              ) : (
+                </span>
+              ))}
+              {!row.contacts?.length && !row.contact_name ? (
                 <span className="danger">{t("relay.noContact")}</span>
-              )}
+              ) : null}
             </span>
             <SeverityBadge severity={row.severity} />
             <span className="table__headline">{row.headline}</span>
