@@ -57,7 +57,9 @@ export function Methodology() {
                   <td>{lookup(t, "channel", item.channel_code)}</td>
                   <td>{lookup(t, "ladder", item.tier)}</td>
                   <td>{item.supported ? t("method.yes") : t("method.no")}</td>
-                  <td className="muted">{item.evidence_source ?? "—"}</td>
+                  <td className="muted">
+                    {item.evidence_source ? lookup(t, "evidence", item.evidence_source) : "—"}
+                  </td>
                   <td className="muted">{item.not_applicable_reason ?? "—"}</td>
                 </tr>
               );
@@ -98,7 +100,7 @@ export function Methodology() {
                 const disclosure = metrics.disclosure;
                 return (
                   <tr key={`${item.name}-${item.version}-${index}`}>
-                    <td>{item.name}</td>
+                    <td>{lookup(t, "model", item.name)}</td>
                     <td className="mono">{item.version}</td>
                     <td>{item.is_bootstrap ? t("method.guess") : t("method.trained")}</td>
                     <td>

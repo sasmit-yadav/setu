@@ -50,6 +50,8 @@ function NavBtn({
   label,
   hint,
   onClick,
+  disabled,
+  disabledHint,
 }: {
   active: boolean;
   collapsed: boolean;
@@ -57,13 +59,21 @@ function NavBtn({
   label: string;
   hint?: string;
   onClick: () => void;
+  /** A nav item with nothing to show is disabled and says why. It used to fire
+   *  and land on a different screen with a different title, which reads as the
+   *  console losing your click. */
+  disabled?: boolean;
+  disabledHint?: string;
 }) {
+  const shownHint = disabled && disabledHint ? disabledHint : hint;
   return (
     <button
       type="button"
       className={`navlink sidebar__link ${active ? "is-active" : ""}`}
       aria-current={active ? "page" : undefined}
-      title={collapsed ? (hint ? `${label} — ${hint}` : label) : undefined}
+      aria-disabled={disabled ? true : undefined}
+      disabled={disabled}
+      title={collapsed ? (shownHint ? `${label} — ${shownHint}` : label) : undefined}
       onClick={onClick}
     >
       <span className="sidebar__icon" aria-hidden>
@@ -71,7 +81,7 @@ function NavBtn({
       </span>
       <span className="sidebar__text">
         <span>{label}</span>
-        {hint ? <span className="muted sidebar__hint">{hint}</span> : null}
+        {shownHint ? <span className="muted sidebar__hint">{shownHint}</span> : null}
       </span>
     </button>
   );
@@ -155,8 +165,9 @@ export default function App() {
       const all: Cmd[] = [
         { id: "live", label: t("cmd.map"), hint: t("cmd.mapHint"), shortcut: "G L", run: () => setView({ name: "live" }) },
         { id: "incident", label: t("cmd.emergency"), hint: t("cmd.emergencyHint"), shortcut: "G I", run: () => {
+          // No silent detour to the overview: if nothing has been opened, the
+          // palette entry is a no-op and the nav item explains why.
           if (lastIncidentId) openIncident(lastIncidentId);
-          else setView({ name: "board" });
         } },
       ];
       if (writeRoles) {
@@ -327,9 +338,10 @@ export default function App() {
             icon={<Siren size={16} />}
             label={t("nav.emergency")}
             hint={t("cmd.emergencyHint")}
+            disabled={!lastIncidentId}
+            disabledHint={t("nav.emergencyNone")}
             onClick={() => {
               if (lastIncidentId) openIncident(lastIncidentId);
-              else setView({ name: "board" });
             }}
           />
           <NavBtn

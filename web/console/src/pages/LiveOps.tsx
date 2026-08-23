@@ -16,31 +16,9 @@ import { Kpi } from "../components/Kpi";
 import { LiveMap } from "../components/LiveMap";
 import { ReplyInbox } from "../components/ReplyInbox";
 import { bySeverityThenTime } from "../lib/api";
+import { relative } from "../lib/time";
 import { useOpsSocket } from "../lib/useOpsSocket";
 import { saidLabel, viaLabel } from "../lib/replies";
-
-/** Elapsed for something that happened, lead time for something forecast.
- *
- *  This table holds both directions at once: an earthquake is reported after it
- *  happens, a thunderstorm nowcast is issued hours before. Signing the elapsed
- *  minutes and printing them raw made a forecast eight hours ahead read as
- *  "-8h", which every reader took to mean eight hours stale. Sign carries the
- *  direction; the magnitude is always positive. */
-function relative(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60_000);
-  const hourMins = 60;
-  const twoDayHours = 48;
-  const ahead = mins < 0;
-  const magnitude = Math.abs(mins);
-  const label = (() => {
-    if (magnitude < hourMins) return `${magnitude}m`;
-    const hrs = Math.round(magnitude / hourMins);
-    if (hrs < twoDayHours) return `${hrs}h`;
-    return `${Math.round(hrs / 24)}d`;
-  })();
-  return ahead ? `in ${label}` : label;
-}
 
 export function LiveOps({
   onOpen,

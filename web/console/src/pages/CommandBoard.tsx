@@ -6,6 +6,7 @@ import {
   type IncidentSummary,
 } from "../lib/api";
 import { lookup, useT } from "../lib/i18n";
+import { shortDateTime } from "../lib/time";
 import { Kpi } from "../components/Kpi";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 import { RiskDial } from "../components/RiskDial";
@@ -167,9 +168,11 @@ export function CommandBoard({
             aria-label={t("board.selectIncident", { label: row.label })}
           >
             <span>{row.label}</span>
-            <span className="muted">{row.incident_type}</span>
+            <span className="muted">{lookup(t, "source", row.incident_type)}</span>
             <span>{lookup(t, "life", row.status)}</span>
-            <time className="mono muted">{row.opened_at}</time>
+            <time className="mono muted" dateTime={row.opened_at} title={row.opened_at}>
+              {shortDateTime(row.opened_at)}
+            </time>
           </button>
         ))}
       </section>
@@ -179,7 +182,7 @@ export function CommandBoard({
           {t("board.ribbon", {
             label: current.label,
             status: lookup(t, "life", current.status),
-            source: current.origin_source,
+            source: lookup(t, "source", current.origin_source),
             versions: current.version_count,
           })}
         </p>

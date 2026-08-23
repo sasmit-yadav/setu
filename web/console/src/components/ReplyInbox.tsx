@@ -1,3 +1,4 @@
+import { relative } from "../lib/time";
 import { useMemo, useState } from "react";
 import type { CitizenReply, PublicConfig } from "../lib/api";
 import { useT } from "../lib/i18n";
@@ -11,17 +12,6 @@ import {
   viaLabel,
   type ReplyFilter,
 } from "../lib/replies";
-
-function relative(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60_000);
-  const hourMins = 60;
-  const twoDayHours = 48;
-  if (Math.abs(mins) < hourMins) return `${mins}m`;
-  const hrs = Math.round(mins / hourMins);
-  if (Math.abs(hrs) < twoDayHours) return `${hrs}h`;
-  return `${Math.round(hrs / 24)}d`;
-}
 
 const FILTERS: { id: ReplyFilter; label: string }[] = [
   { id: "all", label: "reply.filterAll" },
