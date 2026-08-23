@@ -214,11 +214,14 @@ Ctrl+K, because forty-two features do not fit a nav bar.
 Neon. Redis Streams on Upstash. Alembic migrations to 0016. The API never
 imports torch — CI fails the build if it does — because two transformer
 models will OOM a 512 MB free API box. Translation lives in a separate
-process. **The Space is not hosted and the model has not run in this
-environment.** The Malayalam on alert 6 is a cached row with no model
-attached — `model_id` is NULL and IndicTrans2 is not in `model_registry`. We
-do not claim a model wrote it. Where a language has no cached row the app
-falls back to the source text and prints the reason on screen.
+process. **IndicTrans2 runs here now** — the dist-200M card in its own
+container, and `model_registry` row 2 is the model registering itself after a
+real response. Compose a warning in any wording and Malayalam, Hindi and
+Marathi are translated and cached before you can reach the Send button. Rows
+translated by the model carry its `model_id`; alert 6's older Malayalam was
+entered by hand and carries NULL, and the difference is visible in the data.
+Where a language has no cached row the app falls back to the source text and
+prints the reason on screen.
 
 **Channels.** Firebase FCM, Twilio SMS and IVR, optional email, simulated
 siren flagged `simulated=true` and badged **SIM**, human relay, signed
@@ -235,11 +238,12 @@ so a webhook cannot rewrite history.
 **ML, said carefully.** MiniLM embeddings only **veto** a duplicate when
 the embed endpoint actually returns vectors; shipping dedup is PostGIS
 spatial-temporal with measured precision and recall on 200 labelled pairs.
-IndicTrans2 dist-200M is the **specified** translator for twenty-two
-languages, cached per alert so IVR and the PWA say the same sentence — that
-path is wired end to end and unit-tested, and it has not run against real
-weights here. No row in this database carries a translation model id, and we
-say so rather than let a cached sentence imply one. Thunderstorm nowcast from CAPE and
+IndicTrans2 dist-200M translates for twenty-two languages, cached per
+sentence so IVR and the PWA say the same words and a repeated warning costs
+the model nothing. It is a separate process from the API by design — the API
+cannot import torch and CI fails the build if it can. Rows it wrote carry its
+`model_id`; rows a human typed carry NULL. We do not have to be asked which
+is which. Thunderstorm nowcast from CAPE and
 lifted index — **cannot self-authorise**. Copilot RAG is phase two; we are
 not demoing it.
 
@@ -556,7 +560,7 @@ fails honest.
 | Is this a real disaster? | No. Wayanad is quiet. We checked USGS and GDACS. We demo the last mile on enrolled phones. |
 | Why not SACHET / IMD? | They are the national pipe and the forecast. We are proof after the pipe. IMD’s public API 401s; SACHET has no pollable feed. Both are upgrade rows, not blockers. |
 | 88% delivered? | We do not show that. We show struck rungs. SMS has no read receipt. |
-| Is this AI / LLM voice? | OS text-to-speech of the signed headline, never an LLM. Translation is IndicTrans2 by design, isolated from the API — not run in this environment, and no row claims it. |
+| Is this AI / LLM voice? | OS text-to-speech of the signed headline, never an LLM. Translation is IndicTrans2 dist-200M running in its own container, registered in `model_registry`, and every row it wrote names it. |
 | Play Store app? | Sideload WebView for the icon. Push is Chrome → Add to Home Screen. |
 | Mesh / Bluetooth? | One signed hop. A browser cannot advertise GATT. |
 | Why four phones not India? | TRAI DLT. Real SMS to verified trial numbers. Simulated carrier otherwise, badged SIM. |
@@ -602,10 +606,10 @@ fails honest.
 4. Presenting phone: **Android Chrome → Add to Home Screen**, sign in,
    **Enable alerts**, unmute. Confirm a `push_token` on that recipient.
 5. Do not Send alert 6. Compose **new** Extreme, Muttil North only.
-6. Malayalam is already cached for the alert-6 text. On a **new** headline
-   the gate will say translation missing and there is no working model to
-   fill it — either reuse wording that is already cached, or let the gate
-   show and explain the fallback. Do not promise live translation.
+6. Start the translator before the console: `docker start setu-ml`, then
+   check `curl localhost:8001/health` shows `toolkit: true`. With it up, any
+   headline you compose is translated before Validate. With it down, only
+   already-cached wording passes the Kerala gate.
 7. Twilio trial: any-key then 1/2. Four SIMs in the room, not in a bag.
 8. One spare Chrome tab for the signed peer URL if they ask nearby.
 9. `/api/v1/methodology` bookmarked if they ask thresholds.

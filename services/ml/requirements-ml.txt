@@ -22,9 +22,19 @@
 # versions from its build log and note the date.
 
 torch>=2.2,<3
-transformers>=4.40,<5
+# Upper bound is 4.47, not 5. transformers 4.47 replaced the legacy tuple
+# past_key_values with EncoderDecoderCache, and IndicTrans2's remote modeling
+# code still indexes past_key_values[0][0].shape — so 4.57 loaded the weights
+# fine and then died inside generate() with "NoneType has no attribute shape".
+# The old <5 bound was written expecting a major bump to be the danger; the
+# break shipped in a minor. Verified working on 4.46.3 against the 200M card.
+transformers>=4.40,<4.47
 sentence-transformers>=2.7,<6
 IndicTransToolkit>=1.0,<2
+# IndicTrans2's remote code imports sentencepiece directly and transformers does
+# not pull it in. Absent, the model card raises ImportError at load time and the
+# service reports models_absent with no clue why.
+sentencepiece>=0.2,<1
 fastapi>=0.110,<1
 uvicorn>=0.27,<1
 

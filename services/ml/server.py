@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
@@ -8,6 +9,8 @@ from pydantic import BaseModel
 
 from services.api.settings import settings
 from services.ml.flores import SOURCE_FLORES, flores_target, is_english
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SETU ML", docs_url=None, redoc_url=None)
 _CACHE: dict[str, Any] = {}
@@ -66,7 +69,13 @@ def _translator():
         tokenizer = AutoTokenizer.from_pretrained(name, trust_remote_code=True)
         model = AutoModelForSeq2SeqLM.from_pretrained(name, trust_remote_code=True)
     except (ImportError, OSError, RuntimeError, ValueError):
-        _CACHE["translator"] = None
+        # Say why, and do not remember the failure. Swallowing this cost an
+        # afternoon: /translate answered "models_absent" with an empty log
+        # while the real cause was a 403 on a gated repo, then a missing
+        # sentencepiece — both fixable without a code change, and both
+        # invisible. A cached None also meant the first attempt decided
+        # forever, so granting access did nothing until the process restarted.
+        logger.exception("translator_load_failed model=%s", name)
         return None
     _CACHE["translator"] = (tokenizer, model)
     return _CACHE["translator"]
