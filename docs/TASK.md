@@ -127,6 +127,28 @@ there, which gives them 39 villages, exactly one of which — Muttil North — h
 enrolled residents. The other 38 are targetable and blocked by the
 zero-recipient rule, which is the rule working.
 
+**One portal, many accounts — not a portal per district.** There is a single
+console at a single URL; what an officer sees comes from `unit_scope_id` on
+their own account and is enforced server-side on every request, so a Palghar
+officer editing a URL toward Muttil North gets a 403 rather than a filtered
+view. Separate deployments per district would mean one security fix becoming
+hundreds of rollouts, configs drifting until they disagree about which model is
+loaded, and — worst — hundreds of audit ledgers where NDMA needs one query. A
+district wanting `wayanad.setu.gov.in` is DNS pointing at the same app, which
+is presentation, not a second system.
+
+**Accounts are named for the scope they carry.** `vythiri.a` / `vythiri.b`
+rather than `officer.a` / `officer.b`, so a second district reads as
+`talasari.a` and the scoping is legible from the login screen. Spelled to match
+the `admin_unit` row, not phonetically. Old audit rows keep the old address on
+purpose — that is who acted, and the ledger is append-only.
+
+**`seed-config` upserts but never prunes.** Renaming a config key leaves the
+old row behind, still pointing at whatever it used to. That is how
+`demo.unit_scope.officer.a@setu.example` survived the rename as an orphan
+aimed at a user that no longer existed; `test_scope_keys_point_at_seeded_users`
+caught it. After renaming any key, delete the old one by hand.
+
 Two real gaps before that is a deployment rather than a capability:
 
 1. **No district level exists.** Only ADM3 and ADM5 are loaded, so a *district*

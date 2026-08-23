@@ -563,6 +563,7 @@ fails honest.
 | They say | You say |
 |---|---|
 | Is this a real disaster? | No. Wayanad is quiet. We checked USGS and GDACS. We demo the last mile on enrolled phones. |
+| A separate portal per district? | No. One console, one ledger. Scope is a property of the account, not the URL — a Wayanad officer and a Palghar officer sign into the same desk and see different taluks, refused server-side on every request. Seven hundred portals would mean seven hundred audit trails, and one queryable ledger is the point. |
 | Why not SACHET / IMD? | They are the national pipe and the forecast. We are proof after the pipe. IMD’s public API 401s; SACHET has no pollable feed. Both are upgrade rows, not blockers. |
 | 88% delivered? | We do not show that. We show struck rungs. SMS has no read receipt. |
 | Is this AI / LLM voice? | OS text-to-speech of the signed headline, never an LLM. Translation is IndicTrans2 dist-200M running in its own container, registered in `model_registry`, and every row it wrote names it. |
