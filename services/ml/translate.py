@@ -130,6 +130,43 @@ async def _store(
     )
 
 
+async def _reuse_identical(
+    conn: asyncpg.Connection,
+    lang: str,
+    source_lang: str,
+    headline: str,
+    body: str,
+) -> asyncpg.Record | None:
+    """A translation of the same sentence is the same translation.
+
+    alert_translation is keyed per alert, so composing the same wording twice
+    used to leave the second alert with an empty cache and a blocked Send even
+    though the exact text had already been translated. Look the text up rather
+    than the alert id.
+
+    model_id travels with the row. A copy of model output stays attributed to
+    that model; a copy of something a human typed stays NULL. The provenance
+    belongs to the sentence, not to the alert that happened to carry it first.
+    """
+    return await conn.fetchrow(
+        """
+        SELECT t.headline, t.body, t.model_id
+        FROM alert_translation t
+        JOIN alert a ON a.id = t.alert_id
+        WHERE t.lang = $1
+          AND a.lang = $2
+          AND a.headline = $3
+          AND a.body = $4
+        ORDER BY t.model_id NULLS LAST, t.alert_id DESC
+        LIMIT 1
+        """,
+        lang,
+        source_lang,
+        headline,
+        body,
+    )
+
+
 async def ensure_translations(conn: asyncpg.Connection, alert_id: int) -> None:
     row = await conn.fetchrow(
         "SELECT headline, body, lang FROM alert WHERE id = $1",
@@ -158,6 +195,21 @@ async def ensure_translations(conn: asyncpg.Connection, alert_id: int) -> None:
             continue
         if lang == source_lang:
             await _store(conn, alert_id, lang, headline, body, None)
+            continue
+        # Before asking the model: has this exact sentence already been
+        # translated for another alert? Composing standard wording twice should
+        # not need the model a second time, and must not leave the gate blocked
+        # when the model is unreachable.
+        reused = await _reuse_identical(conn, lang, source_lang, headline, body)
+        if reused is not None:
+            await _store(
+                conn,
+                alert_id,
+                lang,
+                str(reused["headline"]),
+                str(reused["body"]),
+                reused["model_id"],
+            )
             continue
         if timeout_s is None:
             continue
