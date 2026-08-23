@@ -5,6 +5,7 @@ import json
 import uuid
 
 import asyncpg
+import httpx
 import structlog
 from redis.asyncio import Redis
 
@@ -239,7 +240,21 @@ async def _send_one_delivery(
                 await store_nonce(redis, conn, delivery_id, message.receipt_nonce)
             simulated = False
             try:
-                result = await adapter.send(message)
+                try:
+                    result = await adapter.send(message)
+                except httpx.HTTPError as exc:
+                    # A provider adapter that talks HTTP can raise a raw
+                    # transport error - a webhook restarting mid-request gives
+                    # RemoteProtocolError, a slow provider gives ReadTimeout.
+                    # Only ChannelUnavailable and TransientChannelError were
+                    # caught, so those escaped, failed the whole batch, and the
+                    # stream message was never acked: the delivery sat pending
+                    # forever with nothing to retry it. A network hiccup to a
+                    # provider is the definition of transient, so it becomes one
+                    # and B3's backoff takes over.
+                    raise TransientChannelError(
+                        f"{type(exc).__name__}: {exc}".rstrip(": ")
+                    ) from exc
             except ChannelUnavailable as exc:
                 if exc.code == "device_unregistered":
                     # Real FCM rejection: the token is dead. Simulating a push

@@ -31,32 +31,91 @@ Then, once:
 from __future__ import annotations
 
 import argparse
+import array
 import datetime
 import json
+import math
+import pathlib
+import subprocess
 import sys
+import tempfile
 import threading
+import time
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# A rising-falling two-tone sweep reads as "siren" without shipping a WAV.
-SWEEP_LOW_HZ = 600
-SWEEP_HIGH_HZ = 1200
-SWEEP_STEP_HZ = 100
-SWEEP_STEP_MS = 40
-SWEEP_CYCLES = 3
+# A rising-falling wail, synthesised once into a WAV and played through the
+# default audio device. The first version used winsound.Beep, which drives the
+# motherboard timer rather than the sound card - on most modern laptops that is
+# inaudible, so the siren "worked" in the logs and made no noise in the room.
+SWEEP_LOW_HZ = 500.0
+SWEEP_HIGH_HZ = 1400.0
+WAIL_SECONDS = 1.2      # one rise-and-fall
+WAIL_CYCLES = 3
+SAMPLE_RATE = 44100
+AMPLITUDE = 0.55        # loud enough to carry, short of clipping
 MAX_BODY_BYTES = 64 * 1024
 
+_WAV_PATH: pathlib.Path | None = None
 
-def _beep_sweep() -> None:
-    """Windows-only audio. Anywhere else the log line is the whole output."""
+
+def _siren_wav() -> pathlib.Path | None:
+    """Synthesise the wail once and cache it next to the OS temp dir."""
+    global _WAV_PATH
+    if _WAV_PATH is not None:
+        return _WAV_PATH if _WAV_PATH.exists() else None
+    target = pathlib.Path(tempfile.gettempdir()) / "setu-siren.wav"
+    try:
+        total = int(SAMPLE_RATE * WAIL_SECONDS * WAIL_CYCLES)
+        frames = array.array("h")
+        phase = 0.0
+        for n in range(total):
+            # Position within one rise-and-fall, 0..1..0
+            cycle_pos = (n % int(SAMPLE_RATE * WAIL_SECONDS)) / (SAMPLE_RATE * WAIL_SECONDS)
+            sweep = 1.0 - abs(2.0 * cycle_pos - 1.0)
+            freq = SWEEP_LOW_HZ + (SWEEP_HIGH_HZ - SWEEP_LOW_HZ) * sweep
+            # Integrate frequency into phase, or a changing freq clicks.
+            phase += 2.0 * math.pi * freq / SAMPLE_RATE
+            frames.append(int(AMPLITUDE * 32767 * math.sin(phase)))
+        with wave.open(str(target), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(SAMPLE_RATE)
+            out.writeframes(frames.tobytes())
+    except OSError:
+        return None
+    _WAV_PATH = target
+    return target
+
+
+def _sound_siren() -> None:
+    """Make a noise on the default output. Falls back rather than failing."""
     try:
         import winsound
     except ImportError:
+        # Not Windows. Let the desktop try; the log line is still the record.
+        for player in (("aplay",), ("afplay",), ("paplay",)):
+            wav = _siren_wav()
+            if wav is None:
+                return
+            try:
+                subprocess.run([*player, str(wav)], check=False, timeout=10)
+                return
+            except (OSError, subprocess.SubprocessError):
+                continue
         return
-    for _ in range(SWEEP_CYCLES):
-        for hz in range(SWEEP_LOW_HZ, SWEEP_HIGH_HZ, SWEEP_STEP_HZ):
-            winsound.Beep(hz, SWEEP_STEP_MS)
-        for hz in range(SWEEP_HIGH_HZ, SWEEP_LOW_HZ, -SWEEP_STEP_HZ):
-            winsound.Beep(hz, SWEEP_STEP_MS)
+    wav = _siren_wav()
+    if wav is not None:
+        try:
+            winsound.PlaySound(str(wav), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            return
+        except RuntimeError:
+            pass
+    # Last resorts: a system sound uses the sound card; Beep may not.
+    try:
+        winsound.MessageBeep(winsound.MB_ICONHAND)
+    except RuntimeError:
+        pass
 
 
 def _force_utf8_stdout() -> None:
@@ -107,7 +166,7 @@ class SirenHandler(BaseHTTPRequestHandler):
         print(f"[{_now()}] SIREN  alert={alert} delivery={delivery}  {headline}", flush=True)
 
         if not self.silent:
-            threading.Thread(target=_beep_sweep, daemon=True).start()
+            threading.Thread(target=_sound_siren, daemon=True).start()
 
         body = json.dumps({"sounded": True, "delivery_id": delivery}).encode()
         self.send_response(200)
@@ -133,7 +192,25 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=9099)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--silent", action="store_true", help="log only, no audio")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="play the siren once and exit - check the speakers before the demo",
+    )
     args = parser.parse_args()
+
+    if args.test:
+        _force_utf8_stdout()
+        wav = _siren_wav()
+        if wav is None:
+            print("could not synthesise the siren wav", file=sys.stderr)
+            return 1
+        print(f"playing {wav} ({wav.stat().st_size // 1024} KB) - you should hear a wail")
+        _sound_siren()
+        # PlaySound is async; hold the process open long enough to finish.
+        time.sleep(WAIL_SECONDS * WAIL_CYCLES + 1)
+        print("if you heard nothing: check the output device and system volume")
+        return 0
 
     _force_utf8_stdout()
     SirenHandler.silent = args.silent
