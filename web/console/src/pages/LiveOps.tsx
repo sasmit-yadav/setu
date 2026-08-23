@@ -18,15 +18,27 @@ import { ReplyInbox } from "../components/ReplyInbox";
 import { useOpsSocket } from "../lib/useOpsSocket";
 import { saidLabel, viaLabel } from "../lib/replies";
 
+/** Elapsed for something that happened, lead time for something forecast.
+ *
+ *  This table holds both directions at once: an earthquake is reported after it
+ *  happens, a thunderstorm nowcast is issued hours before. Signing the elapsed
+ *  minutes and printing them raw made a forecast eight hours ahead read as
+ *  "-8h", which every reader took to mean eight hours stale. Sign carries the
+ *  direction; the magnitude is always positive. */
 function relative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diffMs / 60_000);
   const hourMins = 60;
   const twoDayHours = 48;
-  if (Math.abs(mins) < hourMins) return `${mins}m`;
-  const hrs = Math.round(mins / hourMins);
-  if (Math.abs(hrs) < twoDayHours) return `${hrs}h`;
-  return `${Math.round(hrs / 24)}d`;
+  const ahead = mins < 0;
+  const magnitude = Math.abs(mins);
+  const label = (() => {
+    if (magnitude < hourMins) return `${magnitude}m`;
+    const hrs = Math.round(magnitude / hourMins);
+    if (hrs < twoDayHours) return `${hrs}h`;
+    return `${Math.round(hrs / 24)}d`;
+  })();
+  return ahead ? `in ${label}` : label;
 }
 
 export function LiveOps({
@@ -127,6 +139,9 @@ export function LiveOps({
   const nowcastVisible = visibleAlerts.filter(
     (a) => a.source_id === "thunderstorm_nowcast",
   ).length;
+  // What the toggle promises: how many rows each view contains. Everything the
+  // desk is tracking, official feed or our own model or an officer's own draft.
+  const domesticTotal = current.filter((a) => a.domestic).length;
 
   const virtualizer = useVirtualizer({
     count: visibleAlerts.length,
@@ -188,7 +203,7 @@ export function LiveOps({
             aria-pressed={scope === "india"}
             onClick={() => setScope("india")}
           >
-            {t("live.scopeIndia")} <span className="mono">{feedDomestic}</span>
+            {t("live.scopeIndia")} <span className="mono">{domesticTotal}</span>
           </button>
           <button
             type="button"
@@ -196,7 +211,7 @@ export function LiveOps({
             aria-pressed={scope === "world"}
             onClick={() => setScope("world")}
           >
-            {t("live.scopeWorld")} <span className="mono">{feedRows.length}</span>
+            {t("live.scopeWorld")} <span className="mono">{current.length}</span>
           </button>
         </div>
         <p className="scope__tally muted" role="status">
@@ -304,8 +319,15 @@ export function LiveOps({
                     type="button"
                   >
                     <SeverityBadge severity={a.severity} />
-                    <span className="table__headline">{a.headline}</span>
-                    <span className="muted table__source">{a.source_id}</span>
+                    <span className="table__headline" title={a.headline}>
+                      {a.headline}
+                    </span>
+                    <span
+                      className="muted table__source"
+                      title={a.source_id}
+                    >
+                      {lookup(t, "source", a.source_id)}
+                    </span>
                     <span className={`status status--${a.lifecycle_status}`}>
                       {lookup(t, "life", a.lifecycle_status)}
                     </span>
