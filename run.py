@@ -384,6 +384,87 @@ def neon_seed_config() -> None:
     must([PY, "scripts/upsert_app_config.py"], env=env)
 
 
+ML_IMAGE = "setu-ml:local"
+ML_CONTAINER = "setu-ml"
+ML_CACHE_VOLUME = "setu-hf-cache"
+ML_PORT = 8001
+ML_IMAGE_PORT = 7860
+
+
+@task("Translator in Docker on :8001 (IndicTransToolkit needs Linux to compile)")
+def ml_docker() -> None:
+    """Build/start the ML service as a container instead of a local venv.
+
+    IndicTransToolkit ships a Cython extension with no Windows wheel, so pip
+    has to compile it and that needs MSVC build tools. The Dockerfile is the
+    same image the Hugging Face Space uses, and it compiles on Linux — which
+    makes this the practical path on a Windows laptop, not a workaround.
+
+    The Hugging Face cache lives in a named volume, so recreating the container
+    does not re-download ~1.1 GB of weights.
+
+    `--rebuild` forces a fresh image; otherwise an existing container is just
+    started, which is what you want on a demo morning.
+    """
+    rebuild = "--rebuild" in sys.argv
+    have_image = (
+        subprocess.run(
+            ["docker", "image", "inspect", ML_IMAGE],
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+    if rebuild or not have_image:
+        print(f"building {ML_IMAGE} (torch layer is cached after the first build)")
+        must(["docker", "build", "-t", ML_IMAGE, str(ROOT)])
+
+    running = subprocess.run(
+        ["docker", "container", "inspect", ML_CONTAINER],
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+    if running and not rebuild:
+        sh(["docker", "start", ML_CONTAINER])
+    else:
+        sh(["docker", "rm", "-f", ML_CONTAINER])
+        sh(["docker", "volume", "create", ML_CACHE_VOLUME])
+        env_file = ROOT / ".env"
+        cloud = ROOT / ".env.cloud"
+        local_env = _parse_env_file(env_file) if env_file.exists() else {}
+        cloud_env = _parse_env_file(cloud) if cloud.exists() else {}
+        args = [
+            "docker", "run", "-d",
+            "--name", ML_CONTAINER,
+            "-p", f"{ML_PORT}:{ML_IMAGE_PORT}",
+            "-v", f"{ML_CACHE_VOLUME}:/home/setu/.cache/huggingface",
+            "-e", "SETU_LOAD_ML_MODELS=1",
+            "-e", f"SETU_TRANSLATE_HF_ID={local_env.get('SETU_TRANSLATE_HF_ID') or DEFAULT_TRANSLATE_HF_ID}",
+        ]
+        # Secrets go in through the child's environment, never on the command
+        # line: `docker run -e NAME` (no value) makes Docker read NAME from the
+        # caller. sh() echoes the argv it runs, so a `-e NAME=secret` form would
+        # print the token to the terminal and into any log capturing it.
+        run_env = os.environ.copy()
+        # The model card is gated; without this the first load 403s.
+        if local_env.get("HF_TOKEN"):
+            run_env["HF_TOKEN"] = local_env["HF_TOKEN"]
+            args += ["-e", "HF_TOKEN"]
+        else:
+            print("  no HF_TOKEN in .env - a gated card will 403 on first load")
+        # Must match what the API sends, or /translate is a silent 401.
+        if cloud_env.get("INTERNAL_ML_KEY"):
+            run_env["INTERNAL_ML_KEY"] = cloud_env["INTERNAL_ML_KEY"]
+            args += ["-e", "INTERNAL_ML_KEY"]
+        args.append(ML_IMAGE)
+        must(args, env=run_env)
+
+    print()
+    print(f"  translator on http://127.0.0.1:{ML_PORT}")
+    print(f"  check it:  curl http://127.0.0.1:{ML_PORT}/health   (want toolkit: true)")
+    print("  first /translate loads the weights and takes a minute; later ones are quick")
+
+
 @task("Start isolated ML service on :8001 (torch never loads in the API process)")
 def ml() -> None:
     load_env()
