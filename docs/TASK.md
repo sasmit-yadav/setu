@@ -59,6 +59,10 @@ stage run is operational, not missing code:
 
 ### 23 Aug — SIH internal presentation (what is still loose)
 
+**Spoken 10-minute pitch** (mapped to `docs/SETU_SIH2026_Idea_FINAL.pdf`):
+`docs/PITCH.md`. Rehearse §A out loud once. Do not read IMPLEMENTATION
+on stage.
+
 The stack is live. Do **not** spend the morning writing new features.
 Rehearse the operational loop and name the gaps out loud. Skip list is
 the cut order, not shame:
@@ -72,6 +76,50 @@ the cut order, not shame:
 | Help needed = trapped person; Give to team on the row | On foot as if it were the same queue |
 | Struck-through ladder rungs with the seeded reason | A flattering “88% delivered” |
 | Malayalam if `alert_translation` already has the row | Live HF Space / IndicTrans2 on stage |
+
+⛔ **A new Kerala Extreme cannot be Sent.** `translation_exists` is a hard
+**fail**, not a warn, and it is keyed by `alert_id`: a Kerala severe/extreme
+needs an `alert_translation` row in `ml` *for that alert*. A brand-new alert
+has none, no working model exists to write one, and reusing alert 6's exact
+wording does not help because the row is keyed by id, not by text. Either
+hand-enter the Malayalam for the new alert before Validate — and say on stage
+that it is pre-entered, not model output — or re-Send alert 6, which this file
+forbids. Decide before the room, not in it.
+
+### Siren and peer relay — both demoable, 22 Aug
+
+**The siren was never a stub.** `WebhookSirenAdapter` is a real HTTP client;
+the seed ships `config = '{}'` for the siren row, so the URL fell back to the
+API root, every POST 404'd, and every siren delivery landed on the simulated
+path. Two changes on Neon (not in git — they point at a laptop):
+
+```sql
+UPDATE channel SET config = '{"webhook_url":"http://127.0.0.1:9099/siren"}'::jsonb
+ WHERE code = 'siren';
+INSERT INTO recipient (unit_id, kind, preferred_lang, consented_at, consent_source)
+VALUES (8157, 'village_siren', 'ml', now(), 'panchayat_device_registration');
+```
+
+The recipient has no phone and no push token, so `resolve_channels_for_recipients`
+walks the extreme policy past fcm/sms/ivr and lands on `siren` — an AREA
+channel, always addressable. Verified: recipient 12 resolves to
+`siren simulated=False`, and the adapter POSTing real Neon config to the
+listener returned `provider_ref=siren-0, simulated=False`.
+
+Run `python scripts/siren_listener.py` (drop `--silent` for audio) and keep
+the terminal visible. The ladder still strikes device_delivered / opened /
+acknowledged, because the adapter declares it cannot prove them — a siren
+cannot tell you anyone heard it.
+
+**Peer relay needs no code.** `relay.ts` does attempt real Web Bluetooth
+GATT as a *central*; what a browser cannot do is *advertise* as a peripheral.
+So phone-to-phone browser BLE is out, but browser → a real peripheral works
+today. Point any GATT server (nRF Connect on a spare Android, an ESP32) at
+service `8e7f3c10-5a2b-4d91-9c4e-1f2a3b4c5d6e`, characteristic
+`...5d6e` ending `11`, 480-byte chunks, and Share reports "Shared over
+Bluetooth." With no hardware, `sharePeer` also posts to a `BroadcastChannel`
+— two tabs of the PWA side by side show the PEER badge after the Ed25519
+check, which is the actual claim being made.
 
 **Loose ends that can still kill the room** — all operational, all in
 this file’s 🔴/🟡:
@@ -183,7 +231,7 @@ verified. What remains needs something no amount of code can supply.
 | Real B9 relay confirmation via **IVR DTMF** | HTTP confirm exists and was used. All prior `relay_confirmation` rows were `method='http'`; the `ivr_dtmf` runner path has **never** run | 15 min |
 | Twilio console webhooks | Point `sms-inbound` / `sms-status` at the Render URL (status may already be ngrok/local). Until Render is the inbound URL, live `REGISTER` from SMS cannot fire in production | 2 min |
 | Worker not hosted | Render Starter ≈ $7/mo, or fold the consumer into the API process. Laptop `worker-cloud` is the demo path | decision |
-| Real translations hosted (C3) | HF Space with `SETU_LOAD_ML_MODELS=1`. Laptop `ml-load` + `worker-cloud` already wrote Malayalam for alert 6. **Demo-optional** — Part 22 says the demo reads cache and never calls the Space live | 20 min |
+| Real translations hosted (C3) | HF Space with `SETU_LOAD_ML_MODELS=1`. **The model has never run here** — checked 22 Aug: 0 of 3 `alert_translation` rows carry a `model_id`, IndicTrans2 is absent from `model_registry` (it self-registers only on a real `/translate`), the weights are not in the HF cache, there is no `.venv-ml`, and `HF_SPACE_URL` is empty in `.env.cloud`. Alert 6's Malayalam was entered by hand. **This blocks a new Kerala Extreme** — see the 23 Aug note | 45–90 min |
 | Monitoring | `SLACK_OR_DISCORD_ALERT_WEBHOOK` is empty. Nothing reports the worker dying | 5 min |
 | Email channel | Brevo or Resend API key | 5 min |
 | **Decision:** is B10 buildable as Bluetooth? | No browser GATT peripheral. Demo path is a signed `?peer=` URL (§8.1, §10.5). Native BLE is still cut-order #4 | done (URL fallback) |
@@ -218,7 +266,7 @@ whatever original list they came from.
 - [ ] **PWA help POST honesty** — `web/citizen/src/App.tsx` `sendResponse` treats `TypeError` as offline and paints “Saved. Will send as soon as there is a signal” with **no in-page queue**. Ack can succeed and Help needed stay empty. Retry + honest error; do not claim queued. §6.18
 - [ ] **Auto `human_relay` when siren is simulated** — recipient 5’s simulated siren counted as delivered, so `on_channels_exhausted` never opened a runner task. Extreme should still spend a human when the last *real* channel failed. §6.18
 - [ ] **Neon enrollment import** — Muttil has 5 live recipients; other villages may still show `consented_recipients: 0`. `python run.py import-enrollment` exits 1 if `data/enrollment/` has no CSV. Generate with `scripts/generate_enrollment_template.py` then fill real consented rows.
-- [x] **C3 translation cache** — API writes `alert_translation` via `/translate` when `HF_SPACE_URL` is set; PWA/IVR/relay fall back with a visible notice. Weights stay off the API (`SETU_LOAD_ML_MODELS=1` only on `services.ml.server`). Space still not deployed — laptop path is `python run.py ml-load` plus `worker-cloud` / `translate-cloud` (defaults `HF_SPACE_URL` to `:8001`). Server now uses IndicTransToolkit + FLORES tags; raw `generate()` was not Malayalam. Alert 6 shipped with en+ml.
+- [ ] **C3 translation cache** (path built, model never run) — API writes `alert_translation` via `/translate` when `HF_SPACE_URL` is set; PWA/IVR/relay fall back with a visible notice. Weights stay off the API (`SETU_LOAD_ML_MODELS=1` only on `services.ml.server`). Space still not deployed — laptop path is `python run.py ml-load` plus `worker-cloud` / `translate-cloud` (defaults `HF_SPACE_URL` to `:8001`). Server now uses IndicTransToolkit + FLORES tags; raw `generate()` was not Malayalam. Alert 6's `en` is the source text and its `ml` row was hand-entered — `model_id` is NULL on both, so nothing here is model output.
 - [x] **Dedup P/R on held-out set** — 200 labelled pairs in `data/ml/dedup_heldout.json`; shuffled 25% published to `model_registry` and Methodology
 - [x] **axe-core on four new screens** — `web/console` `npm run test:a11y` reads TSX sources then runs axe; AssuranceLadder still announces “not applicable”
 - [x] **Part 38 hardcoding three-pass** — Python AST + SQL VIEW comparisons + TS `relay`/`verify`/`response`/`sw`; `tests/unit/test_twiml_has_no_literals.py`
@@ -356,7 +404,7 @@ day so they do not still say FCM and IVR are unproven.
 | Day 9 | Gate 4 integration run | 🟡 Coverage gate **re-run and passing at 95.87%** (up from 95.71% with B3's tests). `authoritative_source` provenance present in `alert_approval`. Retry-backoff evidence artifact committed. **21-step recorded take not done** — needs 6 people + hardware |
 | Day 10 | Command Board UI, after-action, RBAC, axe | ✅ `CommandBoard.tsx` grep clean. RBAC now **140 tests**, every Part 26 row with allow+deny. `npm run test:a11y` re-run → clean. Hardcoding guard confirmed to cover `governance/` + `response/` |
 | Day 11 | Freeze | 🟡 `freeze-guard.yml` guards all Day-11 paths, epoch 21 Aug 21:00 IST. Final snapshot committed ✅ (and re-cut after 69 fabricated translations were purged from it), `nightly-20260821` tag cut ✅, Part 19 walked ✅ (`docs/IMPLEMENTATION.md` §11). Post-freeze block cannot be demonstrated until the epoch passes |
-| — | **Deploy** *(not a roadmap day)* | ✅ Vercel + Render + Neon + Upstash live at ₹0, verified end to end. Worker runs locally (`worker-cloud`) because Render free has no background workers. HF Space not deployed — use `ml-load` + `translate-cloud` on the laptop so IndicTrans2 still writes real cache rows |
+| — | **Deploy** *(not a roadmap day)* | ✅ Vercel + Render + Neon + Upstash live at ₹0, verified end to end. Worker runs locally (`worker-cloud`) because Render free has no background workers. HF Space not deployed, and `ml-load` has never actually run — no translation in this database carries a `model_id` |
 | Day 12–13 | Rehearsal | ⚪ Not started — every item needs humans or hardware |
 
 ---
@@ -395,7 +443,8 @@ one piece you have to remember. **Do not Send alert 6 again.**
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
-python run.py ml-load            # KEEP OPEN — IndicTrans2 on :8001 (optional if ml already cached)
+# ml-load needs a .venv-ml and ~3.5 GB of weights that are NOT on this
+# laptop. It cannot fill a translation tonight. Keep it out of the demo path.
 python run.py worker-cloud       # KEEP OPEN — sends SMS + IVR + FCM
 ```
 
