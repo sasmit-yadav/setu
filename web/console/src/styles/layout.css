@@ -513,7 +513,17 @@ button.chip {
   padding-inline: var(--s4);
   --table-min: 39rem;
 }
-.table__body--virtual { max-height: 520px; overflow: auto; }
+/* The virtualizer measures this element as its viewport and renders nothing
+ * until it has a definite height. A flex child defaults to flex:0 1 auto and
+ * sizes to its content, and the content here is virtual — so it collapsed to
+ * 0px and stayed empty. Take the remaining column height instead; min-height:0
+ * is what lets a flex child actually shrink to it. */
+.table__body--virtual {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 520px;
+  overflow: auto;
+}
 .composer {
   display: grid;
   grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 420px);
@@ -1098,3 +1108,28 @@ html[lang="hi"] .dial__label {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* Area scope: India by default, everywhere on request. A pressed toggle has to
+ * read as pressed without relying on colour alone, so the on state also gains
+ * weight and a filled ground. */
+.scope { display: flex; flex-wrap: wrap; gap: var(--s2); margin: var(--s3) 0 var(--s2); }
+.chip--toggle {
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.chip--toggle .mono { font-variant-numeric: tabular-nums; opacity: 0.75; }
+.chip--toggle:hover { color: var(--text-primary); border-color: var(--text-dim, var(--state-neutral)); }
+.chip--toggle.is-on {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border-color: var(--state-info);
+  font-weight: 600;
+}
+.chip--toggle.is-on .mono { opacity: 1; color: var(--state-info); }
+.scope__tally { font-size: var(--fs-sm); margin: 0 0 var(--s3); font-variant-numeric: tabular-nums; }

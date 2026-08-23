@@ -46,6 +46,10 @@ export function LiveOps({
   const [summary, setSummary] = useState<OpsSummary | null>(null);
   const [feed, setFeed] = useState<OpsFeedItem[]>([]);
   const [replies, setReplies] = useState<CitizenReply[]>([]);
+  // The feeds poll worldwide, but an officer's job is their own district.
+  // India is the default view; "Everywhere" is one tap away, never the
+  // thing you have to wade through first.
+  const [scope, setScope] = useState<"india" | "world">("india");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -97,15 +101,31 @@ export function LiveOps({
   const link = useOpsSocket(() => void load());
   const liveAlerts = alerts.filter((a) => a.lifecycle_status === "active");
 
+  const tileSource = String(cfg?.["map.tile_source"] ?? map?.tile_source ?? "");
+
+  // A cancelled or superseded alert is not a live warning. They were filling
+  // this table with rows whose "when" was in the future and whose status was
+  // Cancelled; history belongs on the incident timeline, not here.
+  const current = alerts.filter(
+    (a) => a.lifecycle_status !== "cancelled" && a.lifecycle_status !== "superseded",
+  );
+  const inScope = (a: AlertSummary) => scope === "world" || a.domestic;
+  const visibleAlerts = current.filter(inScope);
+  const visibleOfficial = official.filter(inScope);
+
+  // Counted over the official external feeds only. Our own nowcast and an
+  // officer's own draft are not "what the feeds are reporting".
+  const feedRows = current.filter((a) => a.source_id === "usgs" || a.source_id === "gdacs");
+  const feedDomestic = feedRows.filter((a) => a.domestic).length;
+  const feedForeign = feedRows.length - feedDomestic;
+
   const virtualizer = useVirtualizer({
-    count: alerts.length,
+    count: visibleAlerts.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 56,
     overscan: 12,
   });
 
-  const tileSource = String(cfg?.["map.tile_source"] ?? map?.tile_source ?? "");
-  const domesticCount = alerts.filter((a) => a.domestic).length;
 
   return (
     <div className="screen screen--wide">
@@ -152,8 +172,36 @@ export function LiveOps({
       <section className="inbox panel" aria-label={t("live.officialTitle")}>
         <p className="screen__kicker">{t("live.officialTitle")}</p>
         <p className="lede">{t("live.officialHint")}</p>
+        <div className="scope" role="group" aria-label={t("live.scopeLabel")}>
+          <button
+            type="button"
+            className={`chip chip--toggle${scope === "india" ? " is-on" : ""}`}
+            aria-pressed={scope === "india"}
+            onClick={() => setScope("india")}
+          >
+            {t("live.scopeIndia")} <span className="mono">{feedDomestic}</span>
+          </button>
+          <button
+            type="button"
+            className={`chip chip--toggle${scope === "world" ? " is-on" : ""}`}
+            aria-pressed={scope === "world"}
+            onClick={() => setScope("world")}
+          >
+            {t("live.scopeWorld")} <span className="mono">{feedRows.length}</span>
+          </button>
+        </div>
+        <p className="scope__tally muted" role="status">
+          {feedDomestic === 0
+            ? t("live.tallyNoneInIndia", { foreign: feedForeign })
+            : scope === "india"
+              ? t("live.tallyIndiaOnly", { domestic: feedDomestic, foreign: feedForeign })
+              : t("live.tallyWorld", { total: feedRows.length, domestic: feedDomestic })}
+        </p>
+        {visibleOfficial.length === 0 && (
+          <p className="muted">{t("live.officialNoneHere")}</p>
+        )}
         <ul className="inbox__list">
-          {official.map((row) => (
+          {visibleOfficial.map((row) => (
             <li key={row.id}>
               <button type="button" className="inbox__row" onClick={() => onOpen(row.id)}>
                 <SeverityBadge severity={row.severity} />
@@ -223,12 +271,12 @@ export function LiveOps({
           </div>
           <div className="table__body table__body--virtual" ref={parentRef}>
             {loading && <p className="muted table__empty">{t("live.loading")}</p>}
-            {!loading && alerts.length === 0 && (
+            {!loading && visibleAlerts.length === 0 && (
               <p className="muted table__empty">{t("live.empty")}</p>
             )}
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualizer.getVirtualItems().map((item) => {
-                const a = alerts[item.index];
+                const a = visibleAlerts[item.index];
                 return (
                   <button
                     key={a.id}
@@ -261,12 +309,12 @@ export function LiveOps({
           {/* A worldwide feed with nothing in India reads as "nothing is
             * happening" unless the domestic count is stated. The flag is a
             * real ST_Intersects against admin_unit, not a bounding box. */}
-          {!loading && alerts.length > 0 && (
+          {!loading && visibleAlerts.length > 0 && (
             <p className="table__tally muted">
-              {t("live.tallyTotal", { total: alerts.length })}{" "}
-              {domesticCount === 0
-                ? t("live.tallyNoneInIndia")
-                : t("live.tallyIndia", { domestic: domesticCount })}
+              {t("live.tallyShowing", {
+                shown: visibleAlerts.length,
+                scope: scope === "india" ? t("live.scopeIndia") : t("live.scopeWorld"),
+              })}
             </p>
           )}
         </section>
