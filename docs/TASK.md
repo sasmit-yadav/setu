@@ -111,6 +111,24 @@ the terminal visible. The ladder still strikes device_delivered / opened /
 acknowledged, because the adapter declares it cannot prove them — a siren
 cannot tell you anyone heard it.
 
+**The draft queue holds everything that arrived on its own.** It was titled
+"From official sites" and filtered to `usgs`/`gdacs`, so with nothing current
+in India the list rendered empty while the page reported 23 Indian rows further
+down — the desk appearing to contradict itself. It is now "Came in on its own"
+and includes `thunderstorm_nowcast`, which is not an official site but is still
+something no officer typed. The In India / Everywhere control carries no count:
+it filters two lists with different membership, so any single number on it is
+wrong for one of them. Each list states its own total instead — the queue says
+"21 waiting for a decision", the table says "Showing 23 (2 warnings, 21 from
+our own nowcast)".
+
+**A forecast is not a stale warning.** `relative()` signed the elapsed minutes
+and printed them raw, so a nowcast eight hours ahead read `-8h` and looked
+eight hours old. USGS reports after an event, the nowcast issues before one —
+the same column holds both directions, and it now prints "in 8h" against "6h".
+Nowcast headlines lead with place and hour (`Donka 06:00 UTC — thunderstorm`)
+because the column truncates, and the source column reads "Our nowcast".
+
 **The nowcast does not duplicate itself — that read was wrong.** The identifier
 is `unit_id:hour` (`services/ingestion/adapters/thunderstorm.py`), so six rows
 for Donka are six different forecast hours, not six copies. Only the headline

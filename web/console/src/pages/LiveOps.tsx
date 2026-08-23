@@ -70,19 +70,37 @@ export function LiveOps({
 
   const load = useCallback(async () => {
     try {
-      const [nextAlerts, usgsDrafts, gdacsDrafts, nextMap, nextCfg, nextSummary, nextFeed, nextReplies] = await Promise.all([
+      const [
+        nextAlerts,
+        usgsDrafts,
+        gdacsDrafts,
+        nowcastDrafts,
+        nextMap,
+        nextCfg,
+        nextSummary,
+        nextFeed,
+        nextReplies,
+      ] = await Promise.all([
         endpoints.alerts(),
         endpoints.alerts({ source_id: "usgs", lifecycle_status: "draft", limit: 40 }),
         endpoints.alerts({ source_id: "gdacs", lifecycle_status: "draft", limit: 40 }),
+        endpoints.alerts({
+          source_id: "thunderstorm_nowcast",
+          lifecycle_status: "draft",
+          limit: 40,
+        }),
         endpoints.map(),
         endpoints.publicConfig(),
         endpoints.opsSummary(),
         endpoints.opsFeed(),
         endpoints.opsReplies().catch(() => [] as CitizenReply[]),
       ]);
-      const pinned = [...usgsDrafts, ...gdacsDrafts].filter(
-        (row) => row.source_id === "usgs" || row.source_id === "gdacs",
-      );
+      const incoming = [...usgsDrafts, ...gdacsDrafts, ...nowcastDrafts];
+      // Our nowcast is not an "official site", but it is still something that
+      // arrived without an officer typing it, and it still needs a decision.
+      // Leaving it out of this queue is what made the desk look empty while a
+      // toggle above it counted twenty-three Indian rows.
+      const pinned = incoming.filter((row) => row.source_id !== "manual");
       const seen = new Set(pinned.map((row) => row.id));
       setOfficial(pinned);
       setAlerts([...pinned, ...nextAlerts.filter((row) => !seen.has(row.id))]);
@@ -139,9 +157,6 @@ export function LiveOps({
   const nowcastVisible = visibleAlerts.filter(
     (a) => a.source_id === "thunderstorm_nowcast",
   ).length;
-  // What the toggle promises: how many rows each view contains. Everything the
-  // desk is tracking, official feed or our own model or an officer's own draft.
-  const domesticTotal = current.filter((a) => a.domestic).length;
 
   const virtualizer = useVirtualizer({
     count: visibleAlerts.length,
@@ -203,7 +218,7 @@ export function LiveOps({
             aria-pressed={scope === "india"}
             onClick={() => setScope("india")}
           >
-            {t("live.scopeIndia")} <span className="mono">{domesticTotal}</span>
+            {t("live.scopeIndia")}
           </button>
           <button
             type="button"
@@ -211,7 +226,7 @@ export function LiveOps({
             aria-pressed={scope === "world"}
             onClick={() => setScope("world")}
           >
-            {t("live.scopeWorld")} <span className="mono">{current.length}</span>
+            {t("live.scopeWorld")}
           </button>
         </div>
         <p className="scope__tally muted" role="status">
@@ -226,13 +241,21 @@ export function LiveOps({
             {t("live.tallyOwnNowcast", { n: nowcastDomestic })}
           </p>
         )}
+        <p className="scope__tally muted" role="status">
+          {t("live.queueCount", {
+            n: visibleOfficial.length,
+            scope: scope === "india" ? t("live.scopeIndia") : t("live.scopeWorld"),
+          })}
+        </p>
         <ul className="inbox__list">
           {visibleOfficial.map((row) => (
             <li key={row.id}>
               <button type="button" className="inbox__row" onClick={() => onOpen(row.id)}>
                 <SeverityBadge severity={row.severity} />
-                <span className="inbox__head">{row.headline}</span>
-                <span className="muted">{row.source_id}</span>
+                <span className="inbox__head" title={row.headline}>{row.headline}</span>
+                <span className="muted" title={row.source_id}>
+                  {lookup(t, "source", row.source_id)}
+                </span>
                 <span className={`status status--${row.lifecycle_status}`}>
                   {lookup(t, "life", row.lifecycle_status)}
                 </span>
