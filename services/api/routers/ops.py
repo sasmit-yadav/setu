@@ -237,8 +237,15 @@ async def ops_summary(
     # a real channel who has still said nothing after the silence window is the
     # Wayanad case: the warning left the office and nobody knows if it landed.
     # Reported per village so the desk can suggest a runner - it never sends one.
-    silence_minutes = await config_repo.get_int(conn, "relay.silence_minutes")
-    silent = await conn.fetch(
+    # A database that has not been reseeded must not lose the whole desk to one
+    # missing key. Absent means the window is unset, so nothing is reported
+    # silent - the feature goes quiet rather than inventing a threshold, and the
+    # response keeps its shape so the console does not need to care.
+    try:
+        silence_minutes = await config_repo.get_int(conn, "relay.silence_minutes")
+    except KeyError:
+        silence_minutes = 0
+    silent = [] if silence_minutes <= 0 else await conn.fetch(
         """
         WITH reached AS (
             SELECT r.unit_id, d.recipient_id, a.id AS alert_id,

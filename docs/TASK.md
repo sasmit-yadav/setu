@@ -111,6 +111,24 @@ the terminal visible. The ladder still strikes device_delivered / opened /
 acknowledged, because the adapter declares it cannot prove them — a siren
 cannot tell you anyone heard it.
 
+**Seven config keys describe behaviour no code implements.**
+`python scripts/check_orphan_config.py` lists them. This is the shape of bug
+that produced B3 — a whole retry policy seeded per severity and read by
+nothing, while 219 tests passed — so it is now a check rather than a memory:
+
+| Key | What it claims |
+|---|---|
+| `relay.confirm_timeout_minutes` | re-call a runner who never confirmed. **Nothing checks.** |
+| `approval.wait_alert_seconds` | warn when an approval has been waiting |
+| `api.rate_limit_per_ip`, `api.rate_limit_dispatch` | request rate limits |
+| `redis.daily_command_budget` | the 4.08× headroom figure in the pitch |
+| `ml.embed.model_name`, `ml.embed.model_version` | MiniLM registry identity |
+
+The first is the one that matters operationally: once a runner is dispatched,
+no timer ever asks whether they confirmed on foot. The rate limits matter for
+a public deployment, not a demo. Say "specified, not wired" if asked — do not
+claim any of them work.
+
 **The draft queue holds everything that arrived on its own.** It was titled
 "From official sites" and filtered to `usgs`/`gdacs`, so with nothing current
 in India the list rendered empty while the page reported 23 Indian rows further
