@@ -39,6 +39,15 @@ class ApproveResponse(BaseModel):
     need: int
 
 
+class SirenResponse(BaseModel):
+    alert_id: int
+    sirens: int
+    delivery_ids: list[int]
+    # True when the button was pressed twice. Reported rather than silently
+    # sounding a village a second time.
+    already_sounded: bool = False
+
+
 class DispatchResponse(BaseModel):
     alert_id: int
     recipient_count: int

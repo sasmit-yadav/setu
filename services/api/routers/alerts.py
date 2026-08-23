@@ -30,11 +30,17 @@ from services.api.schemas import (
     PatchAlertRequest,
     PreviewResponse,
     RuleResultOut,
+    SirenResponse,
     ValidateResponse,
 )
 from services.audit.ledger import append_audit
 from services.delivery.assurance_ladder import alert_assurance
-from services.delivery.engine import DispatchError, QualityGateBlocked, dispatch_alert
+from services.delivery.engine import (
+    DispatchError,
+    QualityGateBlocked,
+    dispatch_alert,
+    enqueue_fanout,
+)
 from services.governance.approvals import (
     ApprovalError,
     approval_count,
@@ -55,6 +61,7 @@ from services.governance.quality_gate import (
 )
 from services.governance.versioning import VersionInFlightError, create_new_version
 from services.ml.translate import ensure_translations
+from services.targeting.geo import device_recipients_in_area
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -375,6 +382,96 @@ async def dispatch(
             ex=ttl,
         )
     return response
+
+
+@router.post("/{alert_id}/siren", response_model=SirenResponse)
+async def sound_siren(
+    alert_id: int,
+    conn: asyncpg.Connection = Depends(get_conn),
+    redis: Redis = Depends(get_redis),
+    principal: Principal = Depends(require_officer),
+) -> SirenResponse:
+    """Sound the village siren for a named, already-live warning.
+
+    Deliberately not part of the dispatch fan-out. A siren wakes a whole village
+    at three in the morning whether or not anyone there has a phone, so it is an
+    act an officer takes against a specific warning and signs their name to -
+    the same reason a feed cannot dispatch and a runner is suggested rather than
+    sent. It used to fire on every Send purely because the hardware happened to
+    be a recipient row.
+
+    Only for a live alert: sounding a siren for a draft would be an alarm for a
+    warning nobody has authorised.
+    """
+    row = await conn.fetchrow(
+        "SELECT lifecycle_status FROM alert WHERE id = $1", alert_id
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="alert_not_found")
+    await assert_alert_in_scope(conn, principal, alert_id)
+    if str(row["lifecycle_status"]) != "active":
+        raise HTTPException(status_code=409, detail="alert_not_active")
+
+    siren_channel = await conn.fetchval("SELECT id FROM channel WHERE code = 'siren'")
+    if siren_channel is None:
+        raise HTTPException(status_code=503, detail="siren_channel_absent")
+
+    kinds = await config_repo.get_csv(conn, "recipient.device_kinds")
+    recipient_ids: list[int] = []
+    for kind in kinds:
+        recipient_ids.extend(await device_recipients_in_area(conn, alert_id, kind))
+    if not recipient_ids:
+        raise HTTPException(status_code=404, detail="no_siren_registered_in_area")
+
+    # Pressing twice must not sound it twice. Report the existing rows instead.
+    existing = await conn.fetch(
+        """
+        SELECT id FROM delivery
+        WHERE alert_id = $1 AND channel_id = $2 AND recipient_id = ANY($3::bigint[])
+        """,
+        alert_id,
+        siren_channel,
+        recipient_ids,
+    )
+    if existing:
+        return SirenResponse(
+            alert_id=alert_id,
+            sirens=len(existing),
+            delivery_ids=[int(r["id"]) for r in existing],
+            already_sounded=True,
+        )
+
+    delivery_ids: list[int] = []
+    async with conn.transaction():
+        for recipient_id in recipient_ids:
+            delivery_id = await conn.fetchval(
+                """
+                INSERT INTO delivery (alert_id, recipient_id, channel_id, state, simulated)
+                VALUES ($1, $2, $3, 'pending', false)
+                ON CONFLICT (alert_id, recipient_id, channel_id, attempt) DO NOTHING
+                RETURNING id
+                """,
+                alert_id,
+                recipient_id,
+                siren_channel,
+            )
+            if delivery_id is not None:
+                delivery_ids.append(int(delivery_id))
+        incident_id = await conn.fetchval(
+            "SELECT incident_id FROM alert WHERE id = $1", alert_id
+        )
+        await append_audit(
+            conn,
+            alert_id=alert_id,
+            incident_id=incident_id,
+            event_type="siren.sounded",
+            payload={"recipients": recipient_ids, "deliveries": delivery_ids},
+            actor=principal.email,
+        )
+    await enqueue_fanout(redis, conn, alert_id, recipient_ids)
+    return SirenResponse(
+        alert_id=alert_id, sirens=len(delivery_ids), delivery_ids=delivery_ids
+    )
 
 
 @router.post("/{alert_id}/new-version", response_model=NewVersionResponse)

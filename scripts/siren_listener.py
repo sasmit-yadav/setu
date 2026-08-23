@@ -59,6 +59,21 @@ def _beep_sweep() -> None:
             winsound.Beep(hz, SWEEP_STEP_MS)
 
 
+def _force_utf8_stdout() -> None:
+    """A Malayalam headline must not kill the siren.
+
+    Windows consoles default to cp1252, and print() of an alert headline in
+    Malayalam raises UnicodeEncodeError - which took this listener down mid-run
+    the first time a real translated warning reached it. The worker documents
+    PYTHONIOENCODING=utf-8 for the same reason; relying on the operator
+    remembering an env var is how the demo loses its siren.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def _now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).astimezone().strftime("%H:%M:%S")
 
@@ -73,10 +88,18 @@ class SirenHandler(BaseHTTPRequestHandler):
             self.send_error(413, "payload too large")
             return
         raw = self.rfile.read(length) if length else b""
+        # Decode before parsing, replacing anything malformed. json.loads() on
+        # bytes raises UnicodeDecodeError rather than JSONDecodeError, so a body
+        # with one bad byte escaped the handler entirely. A siren controller must
+        # sound on a request it cannot fully read - refusing to make a noise
+        # because the headline had a stray byte is the wrong failure.
+        text = raw.decode("utf-8", "replace") if raw else "{}"
         try:
-            payload = json.loads(raw or b"{}")
-        except json.JSONDecodeError:
-            payload = {"_unparsed": raw[:200].decode("utf-8", "replace")}
+            payload = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            payload = {"_unparsed": text[:200]}
+        if not isinstance(payload, dict):
+            payload = {"_unparsed": text[:200]}
 
         alert = payload.get("alert_id", "?")
         delivery = payload.get("delivery_id", "?")
@@ -112,6 +135,7 @@ def main() -> int:
     parser.add_argument("--silent", action="store_true", help="log only, no audio")
     args = parser.parse_args()
 
+    _force_utf8_stdout()
     SirenHandler.silent = args.silent
     server = ThreadingHTTPServer((args.host, args.port), SirenHandler)
     audio = "log only" if args.silent else "audible"
