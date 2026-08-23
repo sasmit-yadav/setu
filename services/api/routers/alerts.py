@@ -129,7 +129,10 @@ async def list_alerts(
     rows = await conn.fetch(
         """
         SELECT a.id, a.incident_id, a.source_id, a.severity, a.headline, a.lifecycle_status,
-               a.effective_at, a.expires_at, COALESCE(s.is_authoritative, false) AS is_authoritative
+               a.effective_at, a.expires_at, COALESCE(s.is_authoritative, false) AS is_authoritative,
+               EXISTS (
+                 SELECT 1 FROM admin_unit u WHERE ST_Intersects(u.geom, a.area)
+               ) AS domestic
         FROM alert a
         LEFT JOIN alert_source s ON s.source_id = a.source_id
         WHERE ($1::text IS NULL OR a.lifecycle_status = $1)
@@ -162,6 +165,7 @@ async def list_alerts(
             effective_at=row["effective_at"].isoformat(),
             expires_at=row["expires_at"].isoformat() if row["expires_at"] else None,
             is_authoritative=bool(row["is_authoritative"]),
+            domestic=bool(row["domestic"]),
         )
         for row in rows
     ]

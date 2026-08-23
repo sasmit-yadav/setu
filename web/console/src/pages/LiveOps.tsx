@@ -105,6 +105,7 @@ export function LiveOps({
   });
 
   const tileSource = String(cfg?.["map.tile_source"] ?? map?.tile_source ?? "");
+  const domesticCount = alerts.filter((a) => a.domestic).length;
 
   return (
     <div className="screen screen--wide">
@@ -257,6 +258,17 @@ export function LiveOps({
               })}
             </div>
           </div>
+          {/* A worldwide feed with nothing in India reads as "nothing is
+            * happening" unless the domestic count is stated. The flag is a
+            * real ST_Intersects against admin_unit, not a bounding box. */}
+          {!loading && alerts.length > 0 && (
+            <p className="table__tally muted">
+              {t("live.tallyTotal", { total: alerts.length })}{" "}
+              {domesticCount === 0
+                ? t("live.tallyNoneInIndia")
+                : t("live.tallyIndia", { domestic: domesticCount })}
+            </p>
+          )}
         </section>
         <aside className="panel live-feed" aria-label={t("live.feedTitle")}>
           <p className="screen__kicker">{t("live.feedKicker")}</p>

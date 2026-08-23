@@ -294,6 +294,10 @@ class AlertSummaryOut(BaseModel):
     effective_at: str
     expires_at: str | None
     is_authoritative: bool = False
+    # True when the alert area touches an admin unit we could actually target.
+    # Not a bounding box: a rectangle around India also contains Kabul, so a
+    # box test reports foreign earthquakes as domestic.
+    domestic: bool = False
 
 
 class AlertDetailOut(BaseModel):

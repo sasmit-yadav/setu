@@ -151,24 +151,44 @@ kbd {
 .kpi--info { border-left-color: var(--state-info); }
 
 /* ── table (Linear list view) ─────────────────────────────────────── */
-.table { display: flex; flex-direction: column; overflow: hidden; }
+/* overflow-x, not hidden: in a narrow pane the fixed columns no longer fit,
+ * and clipping them made the flexible column collapse to zero so "Warning"
+ * and "Came from" printed on top of each other. Scrolling keeps every column
+ * at its designed width instead of overlapping two of them. */
+.table { display: flex; flex-direction: column; overflow-x: auto; overflow-y: hidden; }
 .table__head,
 .table__row {
   display: grid;
   /* FIXED column widths: 11.3 requires no layout shift on update. Combined
-   * with tabular-nums, a live tick cannot make the grid jump. */
-  grid-template-columns: 64px 108px minmax(0, 1fr) minmax(0, 160px) 96px 64px;
+   * with tabular-nums, a live tick cannot make the grid jump. The flexible
+   * columns carry a real floor rather than minmax(0, ...) — a zero floor is
+   * what let them vanish under their own header text. */
+  grid-template-columns: 64px 108px minmax(11rem, 1fr) minmax(7rem, 160px) 96px 64px;
   gap: var(--s3);
   align-items: center;
   padding: var(--s3) var(--s4);
   text-align: left;
-  min-width: 0;
+  /* Each table variant sets its own floor; below it the container scrolls. */
+  min-width: var(--table-min, 46rem);
 }
 .table__head {
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-subtle);
+  /* Sticky so the labels stay put while the body scrolls under them. */
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  z-index: 1;
+}
+/* No header label may spill into the next column, whatever the language.
+ * Malayalam and Marathi labels are materially longer than the English ones. */
+.table__head > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .table__body { display: flex; flex-direction: column; content-visibility: auto; }
 .table__row {
@@ -180,7 +200,17 @@ kbd {
 }
 .table__row:hover { background: var(--bg-raised); }
 .table__headline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.table__source { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; overflow: hidden; }
+.table__source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  overflow: hidden;
+  /* Was clipping mid-glyph — "thunderstor" with no ellipsis reads as a bug. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.table__source > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table__empty { padding: var(--s4); }
 
 .status { font-size: var(--fs-sm); color: var(--text-secondary); white-space: nowrap; }
@@ -258,13 +288,15 @@ kbd {
 .reply-inbox .kpis { margin: 0; }
 .reply-inbox .table__head,
 .reply-inbox .table__row {
-  grid-template-columns: 64px 128px minmax(0, 1.6fr) minmax(0, 180px);
+  grid-template-columns: 64px 128px minmax(10rem, 1.6fr) minmax(8rem, 180px);
   padding-left: 0;
   padding-right: 0;
+  --table-min: 30rem;
 }
 .reply-inbox--alert .table__head,
 .reply-inbox--alert .table__row {
-  grid-template-columns: 64px 108px 128px minmax(0, 1.4fr) minmax(0, 140px) minmax(0, 1fr);
+  grid-template-columns: 64px 108px 128px minmax(9rem, 1.4fr) minmax(7rem, 140px) minmax(7rem, 1fr);
+  --table-min: 44rem;
 }
 .chip-row {
   display: flex;
@@ -465,13 +497,21 @@ button.chip {
 .live-split > * { min-width: 0; }
 .live-table {
   min-height: 520px;
-  overflow: hidden;
+  /* Was overflow:hidden, which clipped the right-hand columns once the row
+   * stopped being narrower than the pane. Scroll the columns instead of
+   * amputating "When". */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .live-table .table__head,
 .live-table .table__row {
-  grid-template-columns: 108px minmax(0, 1fr) minmax(0, 100px) 88px 52px;
+  /* Real floors on the two flexible columns. With minmax(0, ...) the headline
+   * column collapsed to nothing in a split pane and "Warning" printed on top
+   * of "Came from" — the bug in the 23 Aug screenshot. */
+  grid-template-columns: 108px minmax(11rem, 1fr) minmax(7rem, 100px) 88px 52px;
   gap: var(--s3);
   padding-inline: var(--s4);
+  --table-min: 39rem;
 }
 .table__body--virtual { max-height: 520px; overflow: auto; }
 .composer {
@@ -1047,4 +1087,14 @@ html[lang="hi"] .dial__label {
   .steps { grid-template-columns: 1fr; }
   .live-split, .composer, .board__cop { grid-template-columns: 1fr; }
   .board__recs { grid-column: auto; }
+}
+
+/* Domestic tally under the live table. A worldwide feed showing nothing in
+ * India needs to say so in words — a reader cannot infer it from the rows. */
+.table__tally {
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }

@@ -168,6 +168,9 @@ export interface AlertSummary {
   effective_at: string;
   expires_at: string | null;
   is_authoritative: boolean;
+  /** Area touches an admin unit we can target. Not a bounding box - a box
+   *  around India also contains Kabul. */
+  domestic: boolean;
 }
 
 export interface AlertDetail extends AlertSummary {
