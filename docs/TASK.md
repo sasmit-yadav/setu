@@ -111,6 +111,38 @@ the terminal visible. The ladder still strikes device_delivered / opened /
 acknowledged, because the adapter declares it cannot prove them — a siren
 cannot tell you anyone heard it.
 
+### Scaling officers to every sub-district
+
+Asked on 23 Aug: can there be an officer per sub-district, one for this taluk
+and one for that? Yes, and it is data rather than code. `app_user.unit_scope_id`
+is a nullable FK to `admin_unit`, and `assert_unit_in_scope` is a geographic
+`ST_Intersects` against that unit's geometry — nothing in the check knows or
+cares which level it was handed. So today's ceiling is one scoped officer per
+loaded unit: **6,822 sub-districts nationwide**, plus 1,480 villages in Kerala
+and Maharashtra. `state_admin` with a NULL scope is the national role and needs
+no unit at all.
+
+Vythiri (3081) is the current example: `officer.a` and `officer.b` are scoped
+there, which gives them 39 villages, exactly one of which — Muttil North — has
+enrolled residents. The other 38 are targetable and blocked by the
+zero-recipient rule, which is the rule working.
+
+Two real gaps before that is a deployment rather than a capability:
+
+1. **No district level exists.** Only ADM3 and ADM5 are loaded, so a *district*
+   officer — the actual DEOC role — has no unit to point at. It needs ADM2
+   geometry loaded first; the scope check itself would then work unchanged, and
+   a district officer would see every taluk inside their boundary for free.
+2. **There is no way to create an officer account.** The only
+   `INSERT INTO app_user` in the codebase is the citizen OTP path. Officers come
+   from seed SQL and `provision_demo`, so onboarding a real district means
+   someone running scripts. An admin screen for this does not exist and should
+   not be described as if it does.
+
+Neither is a redesign. Both are the difference between "the model supports it"
+and "a state could roll it out", and that distinction is worth saying out loud
+rather than letting a judge assume the second.
+
 ### 23 Aug — what changed today
 
 **The siren is an officer's button, not part of Send.** It used to fire on every
