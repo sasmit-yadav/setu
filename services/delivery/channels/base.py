@@ -15,10 +15,6 @@ class OutboundMessage:
     headline: str
     body: str
     ack_url: str
-    # The language headline/body were actually resolved into, so a channel can
-    # localise the text IT adds (the SMS reply-instruction footer) instead of
-    # stapling English onto a Malayalam warning.
-    lang: str | None = None
     receipt_nonce: str | None = None
     signature: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

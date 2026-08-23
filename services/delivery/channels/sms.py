@@ -43,14 +43,7 @@ class TwilioSmsAdapter:
         from services.api import config_repo
 
         callback = public_webhook_url("/api/v1/webhooks/sms-status")
-        # Follow the language the alert text was resolved into. The footer is the
-        # only part of this SMS the platform writes itself, and it used to be
-        # English on every message — so a Malayalam warning arrived with English
-        # instructions on how to answer it, which is the one instruction the
-        # recipient most needs to be able to read.
-        footer = await config_repo.get_localised(
-            self._conn, "response.sms_footer", msg.lang
-        )
+        footer = await config_repo.get(self._conn, "response.sms_footer")
         text = f"{msg.headline}\n\n{msg.body}"
         if footer:
             text = f"{text}\n\n{footer}"

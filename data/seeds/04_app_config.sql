@@ -252,31 +252,8 @@ INSERT INTO app_config (key, value, unit, note) VALUES
   ('response.sms_reply.safe', 'SETU: Marked safe. Thank you.', 'string', 'Auto-reply after SAFE'),
   ('response.sms_reply.help', 'SETU: Help request received. Teams will be notified.', 'string', 'Auto-reply after HELP'),
   ('response.sms_reply.no_alert', 'SETU: No live warning for this number.', 'string', 'Auto-reply when SAFE/HELP has no active delivery'),
-  ('response.sms_reply.hint', 'SETU: Reply 1 (or SAFE) if you are safe. Reply 2 (or HELP) if you need help.', 'string', 'Auto-reply for an unrecognised inbound word'),
-  ('response.sms_footer', 'Reply 1 (or SAFE) if you are safe. Reply 2 (or HELP) if you need help.', 'string', 'Appended to every outbound warning SMS'),
-  -- Digits are the primary answer and the words stay as aliases. A feature
-  -- phone in Muttil often has no Malayalam keyboard, and typing SAFE assumes
-  -- English literacy from the person this system exists to reach; a digit
-  -- assumes neither, and it matches the IVR's DTMF 1/2 so one answer works on
-  -- both channels. Blank either key to disable that digit.
-  ('response.sms_digit.safe', '1', 'string', 'Inbound SMS digit meaning safe. Same effect as the SAFE keyword and as IVR DTMF 1'),
-  ('response.sms_digit.help', '2', 'string', 'Inbound SMS digit meaning help. Same effect as the HELP keyword and as IVR DTMF 2'),
-  -- Per-language citizen-facing SMS text. config_repo.get_localised() reads
-  -- '<key>.<lang>' and falls back to the base key, so a language with no row
-  -- still gets a message rather than none. ⚠ HAND-WRITTEN, NOT IndicTrans2
-  -- output: fixed UI strings must not change wording between deploys, and a
-  -- 2-3 word fragment is where NMT is weakest. Have a native speaker read
-  -- these before the pilot.
-  ('response.sms_footer.ml', 'സുരക്ഷിതം എങ്കിൽ 1 അയയ്ക്കുക. സഹായം വേണമെങ്കിൽ 2 അയയ്ക്കുക.', 'string', 'Malayalam reply instruction appended to a Malayalam warning SMS'),
-  ('response.sms_footer.hi', 'सुरक्षित हैं तो 1 भेजें। मदद चाहिए तो 2 भेजें।', 'string', 'Hindi reply instruction appended to a Hindi warning SMS'),
-  ('response.sms_reply.safe.ml', 'സെതു: സുരക്ഷിതമായി രേഖപ്പെടുത്തി. നന്ദി.', 'string', 'Malayalam auto-reply after 1/SAFE'),
-  ('response.sms_reply.safe.hi', 'सेतु: सुरक्षित दर्ज किया गया। धन्यवाद।', 'string', 'Hindi auto-reply after 1/SAFE'),
-  ('response.sms_reply.help.ml', 'സെതു: സഹായ അഭ്യർത്ഥന ലഭിച്ചു. സംഘത്തെ അറിയിക്കും.', 'string', 'Malayalam auto-reply after 2/HELP'),
-  ('response.sms_reply.help.hi', 'सेतु: मदद का अनुरोध मिला। टीम को सूचित किया जाएगा।', 'string', 'Hindi auto-reply after 2/HELP'),
-  ('response.sms_reply.no_alert.ml', 'സെതു: ഈ നമ്പറിന് സജീവ മുന്നറിയിപ്പില്ല.', 'string', 'Malayalam auto-reply when 1/2 arrives with no active delivery'),
-  ('response.sms_reply.no_alert.hi', 'सेतु: इस नंबर के लिए कोई सक्रिय चेतावनी नहीं है।', 'string', 'Hindi auto-reply when 1/2 arrives with no active delivery'),
-  ('response.sms_reply.hint.ml', 'സെതു: സുരക്ഷിതം എങ്കിൽ 1, സഹായം വേണമെങ്കിൽ 2 അയയ്ക്കുക.', 'string', 'Malayalam auto-reply for an unrecognised inbound word'),
-  ('response.sms_reply.hint.hi', 'सेतु: सुरक्षित हैं तो 1, मदद चाहिए तो 2 भेजें।', 'string', 'Hindi auto-reply for an unrecognised inbound word'),
+  ('response.sms_reply.hint', 'SETU: Reply SAFE if you are safe. Reply HELP if you need help.', 'string', 'Auto-reply for an unrecognised inbound word'),
+  ('response.sms_footer', 'Reply SAFE if you are safe. Reply HELP if you need help.', 'string', 'Appended to every outbound warning SMS'),
   ('enrollment.csv_max_rows',         '5000',     'rows',   'Per-import cap'),
   ('enrollment.csv_require_dry_run',  'true',     'bool',   'A destructive bulk write must be previewed first'),
   ('enrollment.phone_local_digits',   '10',       'digits', 'National significant number length without country code'),
