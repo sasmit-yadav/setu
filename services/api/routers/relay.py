@@ -8,11 +8,14 @@ from services.api import config_repo
 from services.api.auth import Principal
 from services.api.deps import get_conn
 from services.api.rbac import (
+    OFFICER,
     RELAY_NODE,
+    STATE_ADMIN,
     assert_unit_in_scope,
     require_relay_confirm,
     require_relay_summary,
 )
+from services.api.settings import settings
 from services.audit.ledger import append_audit
 from services.crypto.alert_signing import verify_payload
 from services.delivery.assurance import record
@@ -127,6 +130,32 @@ async def list_relay_tasks(
         # The number itself stays out: a relay volunteer's line is not something
         # every operational-read role needs on screen.
         node = await find_relay_node(conn, int(row["unit_id"]))
+        # The number is for whoever has to place the call. An auditor works from
+        # aggregates, and a relay contact reading this queue does not need other
+        # contacts' lines - the same reason assistance summaries give them a
+        # count and an area instead of a list.
+        contact_phone = None
+        may_dial = principal.role in (OFFICER, STATE_ADMIN)
+        if (
+            node is not None
+            and may_dial
+            and node["phone_enc"]
+            and settings.pgcrypto_sym_key
+        ):
+            try:
+                raw = await conn.fetchval(
+                    "SELECT pgp_sym_decrypt($1, $2)",
+                    node["phone_enc"],
+                    settings.pgcrypto_sym_key,
+                )
+            except asyncpg.PostgresError:
+                # Sealed with a different key - pgp_sym_decrypt raises rather
+                # than returning NULL. Show the name without a number instead of
+                # failing the whole queue, which is what the seed's 'CHANGE-ME'
+                # rows used to do to the human_relay adapter.
+                raw = None
+            if raw:
+                contact_phone = raw.decode() if isinstance(raw, bytes) else str(raw)
         out.append(
             {
                 "id": row["id"],
@@ -136,6 +165,7 @@ async def list_relay_tasks(
                 "unit_name": row["unit_name"],
                 "contact_name": node["name"] if node else None,
                 "contact_kind": node["kind"] if node else None,
+                "contact_phone": contact_phone,
                 "headline": resolved.headline,
                 "body": resolved.body,
                 "lang": resolved.lang,

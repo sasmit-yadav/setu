@@ -42,6 +42,7 @@ from typing import Any
 import asyncpg
 from redis.asyncio import Redis
 
+from services.api import config_repo
 from services.audit.ledger import append_audit
 from services.delivery.keys import keys
 from services.delivery.state_machine import transition
@@ -199,8 +200,21 @@ async def hold_staggered_channels(
 
     Returns {delivery_id: delay_s} for the held rows.
     """
-    severity = await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id)
-    if str(severity) != "severe":
+    severity = str(await conn.fetchval("SELECT severity FROM alert WHERE id = $1", alert_id))
+    # Extreme still fans out to every channel - the point of Extreme is that it
+    # does not wait for one to fail. But firing them in the same instant means
+    # the handset rings while the SMS is still arriving, and the person reads
+    # neither. A small fixed gap keeps the fan-out and orders it: message first,
+    # then the call. Zero keeps the original simultaneous behaviour.
+    extreme_gap = 0
+    if severity == "extreme":
+        try:
+            extreme_gap = await config_repo.get_int(conn, "delivery.extreme_channel_gap_s")
+        except KeyError:
+            extreme_gap = 0
+        if extreme_gap <= 0:
+            return {}
+    elif severity != "severe":
         return {}
     policy_rows = await conn.fetch(
         """
@@ -211,7 +225,8 @@ async def hold_staggered_channels(
         str(severity),
     )
     wait_by_channel = {
-        int(row["channel_id"]): int(row["wait_before_next_s"]) for row in policy_rows
+        int(row["channel_id"]): (extreme_gap or int(row["wait_before_next_s"]))
+        for row in policy_rows
     }
     order_by_channel = {int(row["channel_id"]): int(row["step_order"]) for row in policy_rows}
     unknown_order = 0

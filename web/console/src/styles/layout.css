@@ -1159,3 +1159,13 @@ html[lang="hi"] .dial__label {
 @media (max-width: 720px) {
   .silence__row { grid-template-columns: 1fr; }
 }
+
+/* The number an officer has to dial. A tel: link so a desk softphone or a
+ * paired handset can take it straight from the screen. */
+.relay__phone {
+  font-size: var(--fs-sm);
+  color: var(--state-info);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.relay__phone:hover { text-decoration: underline; }
