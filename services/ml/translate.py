@@ -223,6 +223,41 @@ async def ensure_translations(conn: asyncpg.Connection, alert_id: int) -> None:
         await _store(conn, alert_id, lang, translated_headline, translated_body, model_id)
 
 
+async def fill_open_alert_translations(
+    conn: asyncpg.Connection, *, limit: int = 3
+) -> int:
+    """Translate live drafts the Render API could not reach a model for.
+
+    Hosted compose calls ensure_translations on Render, which cannot see a
+    laptop :8001. The quality gate then fails translation_exists and greys
+    out Send warning. The laptop worker *can* reach the model — run this
+    every idle tick so Malayalam lands in Neon and the desk unlocks.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT id FROM alert
+        WHERE lifecycle_status IN ('draft', 'active')
+          AND severity IN ('severe', 'extreme')
+        ORDER BY id DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    added = 0
+    for row in rows:
+        before = await conn.fetchval(
+            "SELECT count(*) FROM alert_translation WHERE alert_id = $1",
+            row["id"],
+        )
+        await ensure_translations(conn, int(row["id"]))
+        after = await conn.fetchval(
+            "SELECT count(*) FROM alert_translation WHERE alert_id = $1",
+            row["id"],
+        )
+        added += max(0, int(after) - int(before or 0))
+    return added
+
+
 async def lang_for_unit(conn: asyncpg.Connection, unit_id: int) -> str | None:
     rows = await conn.fetch(
         "SELECT key, value FROM app_config WHERE key LIKE 'case_study.bbox.%'"

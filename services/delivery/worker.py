@@ -30,7 +30,11 @@ from services.delivery.relay_escalation import (
 from services.delivery.retry import due_delivery_ids, handle_failure, is_held_for_later
 from services.delivery.state_machine import transition
 from services.delivery.states import State
-from services.ml.translate import ensure_translations, resolve_alert_text
+from services.ml.translate import (
+    ensure_translations,
+    fill_open_alert_translations,
+    resolve_alert_text,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -363,8 +367,11 @@ async def worker_loop(consumer: str, shutdown: asyncio.Event | None = None) -> N
             async with connect_direct() as conn:
                 adapters = await load_channel_adapters(conn)
                 sent = await drain_due_retries(conn, redis, adapters)
+                translated = await fill_open_alert_translations(conn)
             if sent:
                 logger.info("retries_drained", count=sent)
+            if translated:
+                logger.info("draft_translations_filled", count=translated)
         except Exception:
             logger.exception("retry_drain_failed")
 

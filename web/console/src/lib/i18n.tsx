@@ -255,6 +255,8 @@ const EN: Record<string, string> = {
   "compose.previewLine": "Warning #{id} · {people} enrolled · ~{pop} in area · {units} villages",
   "compose.noPeople": "No registered residents inside this shape. Draw over a labelled village, not empty land or sea.",
   "compose.blocked": "Cannot send yet — {rules}",
+  "compose.waitingTranslation": "Malayalam is still being written on the laptop translator. Keep worker-cloud and the translator running — Send unlocks when that check turns green.",
+  "compose.needSignatures": "Cannot send yet — {have} of {need} officer signatures. Sign in as the second officer in another browser.",
   "compose.peopleIn": "{name} · {n} enrolled · ~{pop} residents",
 
   "gate.title": "Checks before sending",

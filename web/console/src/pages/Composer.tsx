@@ -15,6 +15,15 @@ import { ApprovalPanel } from "../components/ApprovalPanel";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { ProvenanceChip } from "../components/ProvenanceChip";
 
+function localDateTimeValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function defaultExpiry(): string {
+  return localDateTimeValue(new Date(Date.now() + 6 * 60 * 60 * 1000));
+}
+
 export function Composer({
   onOpen,
   onBack,
@@ -31,7 +40,7 @@ export function Composer({
   const [severity, setSeverity] = useState("");
   const [headline, setHeadline] = useState("");
   const [body, setBody] = useState("");
-  const [expires, setExpires] = useState("");
+  const [expires, setExpires] = useState(defaultExpiry);
   const [onset, setOnset] = useState("");
   const [alertId, setAlertId] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -169,14 +178,58 @@ export function Composer({
       await endpoints.dispatch(alertId);
       onOpen(alertId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("alert.sendFail", { code: "blocked" }));
+      setError(dispatchFail(err));
       if (alertId) setGate(await endpoints.validate(alertId));
     } finally {
       setBusy(null);
     }
   }
 
+  const waitingTranslation = Boolean(
+    alertId &&
+      gate?.results.some((r) => r.rule_id === "translation_exists" && r.status === "fail"),
+  );
+
+  useEffect(() => {
+    if (!alertId || !waitingTranslation) return;
+    let n = 0;
+    const timer = window.setInterval(() => {
+      n += 1;
+      if (n > 45) {
+        window.clearInterval(timer);
+        return;
+      }
+      void endpoints
+        .validate(alertId)
+        .then((next) => {
+          setGate(next);
+        })
+        .catch(() => {
+          /* keep waiting — the laptop translator may still be loading */
+        });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [alertId, waitingTranslation]);
+
   const blocked = Boolean(gate?.blocked);
+  const need = approvals?.need ?? 0;
+  const have = approvals?.have ?? 0;
+  const approvalsShort = Boolean(alertId && need > 0 && have < need);
+
+  function dispatchFail(err: unknown): string {
+    if (err instanceof ApiError) {
+      if (err.code === "quality_gate") return t("gate.blockedDispatch");
+      if (err.code === "approval_quorum" || err.code === "approval_required") {
+        return t("alert.authIncomplete");
+      }
+      if (err.code === "no_recipients") return t("compose.noPeople");
+      if (err.code === "unit_scope") return t("alert.outOfDistrict");
+      const d = err.detail as Record<string, unknown> | undefined;
+      if (typeof d?.message === "string") return d.message;
+      return t("alert.sendFail", { code: err.code });
+    }
+    return err instanceof Error ? err.message : t("alert.sendFail", { code: "blocked" });
+  }
 
   return (
     <div className="screen screen--wide">
@@ -336,10 +389,20 @@ export function Composer({
               approving={busy === "approve"}
             />
           )}
+          {waitingTranslation && (
+            <p className="muted" role="status">
+              {t("compose.waitingTranslation")}
+            </p>
+          )}
+          {approvalsShort && !blocked && (
+            <p className="danger" role="status">
+              {t("compose.needSignatures", { have, need })}
+            </p>
+          )}
           <button
             className="btn btn--danger"
             type="button"
-            disabled={!alertId || blocked || busy !== null}
+            disabled={!alertId || blocked || busy !== null || approvalsShort}
             onClick={() => void dispatch()}
           >
             {busy === "dispatch" ? t("compose.sending") : t("compose.send")}

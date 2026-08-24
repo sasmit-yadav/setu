@@ -55,23 +55,47 @@ export function AlertDetail({
   const [nextSeverity, setNextSeverity] = useState("");
 
   const refresh = useCallback(async () => {
-    const [a, s, publicCfg, nextReplies] = await Promise.all([
+    const [a, s, publicCfg, nextReplies, nextGate] = await Promise.all([
       endpoints.alert(id),
       endpoints.assurance(id),
       endpoints.publicConfig(),
       endpoints.alertResponses(id).catch(() => [] as CitizenReply[]),
+      endpoints.validate(id).catch(() => null),
     ]);
     setAlert(a);
     setAssurance(s);
     setCfg(publicCfg);
     setReplies(nextReplies);
     setApprovals({ have: a.approval_have, need: a.approval_need });
+    if (nextGate) setGate(nextGate);
   }, [id]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
   useOpsSocket(() => void refresh());
+
+  const waitingTranslation = Boolean(
+    gate?.results.some((r) => r.rule_id === "translation_exists" && r.status === "fail"),
+  );
+  useEffect(() => {
+    if (!waitingTranslation) return;
+    let n = 0;
+    const timer = window.setInterval(() => {
+      n += 1;
+      if (n > 45) {
+        window.clearInterval(timer);
+        return;
+      }
+      void endpoints
+        .validate(id)
+        .then((next) => setGate(next))
+        .catch(() => {
+          /* laptop translator may still be loading */
+        });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [id, waitingTranslation]);
 
   async function runGate() {
     setBusy("gate");
@@ -352,6 +376,9 @@ export function AlertDetail({
             )}
             {gateBlocks && (
               <p className="danger detail__why">{t("gate.blockedDispatch")}</p>
+            )}
+            {waitingTranslation && (
+              <p className="muted detail__why">{t("compose.waitingTranslation")}</p>
             )}
             {approvalsShort && (
               <p className="danger detail__why">
