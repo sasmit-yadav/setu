@@ -361,6 +361,16 @@ async def dispatch(
         ) from exc
     except DispatchError as exc:
         raise HTTPException(status_code=422, detail={"error": exc.code, "message": exc.message}) from exc
+    except asyncpg.UniqueViolationError as exc:
+        # Two live warnings on one incident is a product conflict, not a crash.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "incident_has_active_alert",
+                "code": "incident_has_active_alert",
+                "message": "Another warning is already live for this village. Cancel it, or send this as a new version of it.",
+            },
+        ) from exc
     except VersionInFlightError as exc:
         retry_ms = await config_repo.get_int(conn, "api.version_conflict_retry_after_ms")
         raise HTTPException(

@@ -8,6 +8,7 @@ import pytest
 from services.enrollment.csv_import import import_csv
 from services.enrollment.phone_hash import phone_hash
 from services.governance.composer import create_draft_alert
+from services.ingestion.incident_linker import detach_if_incident_already_live
 
 
 @pytest.mark.integration
@@ -29,6 +30,52 @@ async def test_create_draft_alert_from_units(db_conn):
     row = await db_conn.fetchrow("SELECT incident_id, lifecycle_status FROM alert WHERE id = $1", result["alert_id"])
     assert row["incident_id"] == result["incident_id"]
     assert row["lifecycle_status"] == "draft"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_detach_if_incident_already_live_splits_fresh_compose(db_conn):
+    unit_id = await db_conn.fetchval("SELECT id FROM admin_unit LIMIT 1")
+    if unit_id is None:
+        pytest.skip("admin_unit empty")
+    first = await create_draft_alert(
+        db_conn,
+        severity="extreme",
+        headline="First live",
+        body="Stay inside",
+        lang="en",
+        unit_ids=[unit_id],
+    )
+    await db_conn.execute(
+        "UPDATE alert SET lifecycle_status = 'active' WHERE id = $1",
+        first["alert_id"],
+    )
+    second = await create_draft_alert(
+        db_conn,
+        severity="extreme",
+        headline="Second draft",
+        body="Move higher",
+        lang="en",
+        unit_ids=[unit_id],
+    )
+    await db_conn.execute(
+        "UPDATE alert SET incident_id = $1 WHERE id = $2",
+        first["incident_id"],
+        second["alert_id"],
+    )
+    new_incident = await detach_if_incident_already_live(
+        db_conn, second["alert_id"], actor="tester"
+    )
+    assert new_incident is not None
+    assert new_incident != first["incident_id"]
+    row = await db_conn.fetchrow(
+        "SELECT incident_id FROM alert WHERE id = $1", second["alert_id"]
+    )
+    assert int(row["incident_id"]) == new_incident
+    still = await detach_if_incident_already_live(
+        db_conn, second["alert_id"], actor="tester"
+    )
+    assert still is None
 
 
 @pytest.mark.integration

@@ -224,6 +224,7 @@ export function Composer({
       }
       if (err.code === "no_recipients") return t("compose.noPeople");
       if (err.code === "unit_scope") return t("alert.outOfDistrict");
+      if (err.code === "incident_has_active_alert") return t("alert.alreadyLive");
       const d = err.detail as Record<string, unknown> | undefined;
       if (typeof d?.message === "string") return d.message;
       return t("alert.sendFail", { code: err.code });

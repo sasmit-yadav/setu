@@ -22,6 +22,7 @@ from services.governance.versioning import (
     release_supersede_lock,
     supersede_predecessor,
 )
+from services.ingestion.incident_linker import detach_if_incident_already_live
 from services.ml.reach_risk import predict_for_alert
 from services.targeting.escalation import resolve_channels_for_recipients
 from services.targeting.geo import recipients_in_area
@@ -143,6 +144,7 @@ async def dispatch_alert(conn: asyncpg.Connection, redis: Redis, alert_id: int, 
                     ]
                     raise QualityGateBlocked(failures)
                 await supersede_predecessor(conn, alert_id, actor=actor)
+                await detach_if_incident_already_live(conn, alert_id, actor=actor)
                 recipient_ids = await recipients_in_area(conn, alert_id)
                 if not recipient_ids:
                     raise DispatchError(

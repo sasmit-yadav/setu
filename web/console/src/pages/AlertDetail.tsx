@@ -190,6 +190,8 @@ export function AlertDetail({
           setNotice({ tone: "danger", text: t("alert.authIncomplete") });
         } else if (err.code === "unit_scope") {
           setNotice({ tone: "danger", text: t("alert.outOfDistrict") });
+        } else if (err.code === "incident_has_active_alert") {
+          setNotice({ tone: "danger", text: t("alert.alreadyLive") });
         } else {
           setNotice({ tone: "danger", text: t("alert.sendFail", { code: err.code }) });
         }

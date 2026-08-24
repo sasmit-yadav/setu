@@ -332,6 +332,7 @@ const EN: Record<string, string> = {
   "alert.authIncomplete": "Cannot send — not enough officer signatures.",
   "alert.outOfDistrict": "This warning is outside your district.",
   "alert.sendFail": "Could not send ({code}).",
+  "alert.alreadyLive": "Another warning is already live for this village. Cancel it, or send this as a new version of it.",
   "alert.newVersion": "Update this warning",
   "alert.newVersionHint": "Use this if the danger has changed. You must write why. The old warning is replaced, not unsent.",
   "alert.reason": "Why are you updating?",

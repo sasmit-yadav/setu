@@ -75,7 +75,12 @@ async def link_to_incident(
         FROM incident i
         JOIN alert a ON a.id = $1
         JOIN alert a2 ON a2.incident_id = i.id
-        WHERE a2.lifecycle_status IN ('active', 'draft')
+        WHERE a2.lifecycle_status = 'draft'
+          AND NOT EXISTS (
+            SELECT 1 FROM alert live
+            WHERE live.incident_id = i.id
+              AND live.lifecycle_status = 'active'
+          )
           AND ST_Intersects(a.area, a2.area)
           AND a.effective_at <= COALESCE(a2.expires_at, a2.effective_at + interval '1 day')
           AND a2.effective_at <= COALESCE(a.expires_at, a2.effective_at + interval '1 day')
@@ -123,3 +128,69 @@ async def link_to_incident(
         actor=actor,
     )
     return int(incident_id)
+
+
+async def detach_if_incident_already_live(
+    conn: asyncpg.Connection, alert_id: int, *, actor: str
+) -> int | None:
+    """A fresh compose must not share an incident with a warning already live.
+
+    link_to_incident used to cluster overlapping Muttil drafts onto the same
+    incident as an *active* send. Dispatch then hit
+    alert_one_active_per_incident_uix and the API returned 500. Versions still
+    share an incident via supersedes_alert_id; those go through
+    supersede_predecessor instead.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT incident_id, supersedes_alert_id, source_id
+        FROM alert WHERE id = $1
+        """,
+        alert_id,
+    )
+    if row is None or row["incident_id"] is None:
+        return None
+    if row["supersedes_alert_id"] is not None:
+        return None
+    blocker = await conn.fetchval(
+        """
+        SELECT id FROM alert
+        WHERE incident_id = $1 AND id <> $2 AND lifecycle_status = 'active'
+        """,
+        row["incident_id"],
+        alert_id,
+    )
+    if blocker is None:
+        return None
+    source = str(row["source_id"] or "manual")
+    label = await generate_label(conn, alert_id, source)
+    new_id = int(
+        await conn.fetchval(
+            """
+            INSERT INTO incident (label, incident_type, status, origin_source)
+            VALUES ($1, $2, 'active', $3)
+            RETURNING id
+            """,
+            label,
+            source,
+            source,
+        )
+    )
+    await conn.execute(
+        "UPDATE alert SET incident_id = $1 WHERE id = $2",
+        new_id,
+        alert_id,
+    )
+    await append_audit(
+        conn,
+        alert_id=alert_id,
+        incident_id=new_id,
+        event_type="incident.opened",
+        payload={
+            "label": label,
+            "split_from": int(row["incident_id"]),
+            "blocked_by": int(blocker),
+        },
+        actor=actor,
+    )
+    return new_id
