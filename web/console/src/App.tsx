@@ -11,7 +11,6 @@ import {
   PanelLeftClose,
   PenLine,
   Radio,
-  Siren,
   UserPlus,
 } from "lucide-react";
 import { endpoints, getToken, setToken, type Me } from "./lib/api";
@@ -332,18 +331,12 @@ export default function App() {
               onClick={() => setView({ name: "relay" })}
             />
           )}
-          <NavBtn
-            collapsed={!navOpen}
-            active={view.name === "incident"}
-            icon={<Siren size={16} />}
-            label={t("nav.emergency")}
-            hint={t("cmd.emergencyHint")}
-            disabled={!lastIncidentId}
-            disabledHint={t("nav.emergencyNone")}
-            onClick={() => {
-              if (lastIncidentId) openIncident(lastIncidentId);
-            }}
-          />
+          {/* "This emergency" is not in the sidebar: with no incident open it can
+              only render as a dead, greyed row explaining that it is dead, which
+              costs a nav slot to say nothing. The view itself is untouched —
+              openIncident() still reaches it from the map, the alert detail and
+              the command palette, which is how an officer arrives at an incident
+              anyway. */}
           <NavBtn
             collapsed={!navOpen}
             active={view.name === "board"}
