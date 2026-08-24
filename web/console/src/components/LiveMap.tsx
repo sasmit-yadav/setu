@@ -1,6 +1,28 @@
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
-import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+// `?worker&url`, NOT `?url`. This one suffix is the difference between a map
+// that renders on Vercel and a blank canvas.
+//
+// `?url` copies the single file verbatim into dist/assets and emits nothing
+// else. But maplibre-gl-worker.mjs opens with
+// `import {...} from "./maplibre-gl-shared.mjs"`, and that sibling chunk was
+// never emitted — so in production the module worker 404'd, MapLibre's
+// dispatcher never answered, the style never finished loading, and nothing
+// painted. Village names still appeared because they are HTML markers needing
+// no worker, which made it look like a tile or basemap problem for hours.
+//
+// Dev hid it completely: Vite served the file out of node_modules/, where the
+// sibling really is next door.
+//
+// Removing the override is NOT the alternative. MapLibre's own fallback does
+// `new URL("./maplibre-gl-worker.mjs", import.meta.url)` — a string built at
+// runtime that Rollup cannot see, so it resolves next to the hashed entry
+// chunk and 404s just the same.
+//
+// `?worker&url` makes Vite treat the file as a worker ENTRY: it follows the
+// relative import, bundles the shared code in, and hands back a URL to a
+// self-contained chunk. Do not "simplify" this back to `?url`.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { Protocol } from "pmtiles";
 import type { GeoFeatureCollection, MapPayload, PublicConfig } from "../lib/api";
 import "maplibre-gl/dist/maplibre-gl.css";
